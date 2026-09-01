@@ -15,56 +15,31 @@ Use the same mirror and commit on both nodes.
 
 ## Reviewer workflow
 
-### 1. Prepare the two checkouts
+The supplied AE environment already provides the two-node mapping, trusted SSH
+connection, checkout locations, experiment filesystems, and rendezvous
+settings. Reviewers do not need to enter or record any node-specific values.
 
-Check out the same revision on node 0 and node 1. On node 0, configure
-non-interactive SSH access and identify the checkout on node 1:
-
-```bash
-export FLEXMAYA_PEER_TARGET=<user>@<node-1-address>
-export FLEXMAYA_PEER_PORT=22
-export FLEXMAYA_PEER_REPO_ROOT=/path/to/node-1/flexeva-ae
-```
-
-### 2. Set up both nodes from node 0
-
-Run setup once, from the repository root on node 0:
+From the repository root on the designated coordinator, prepare both nodes
+with one command:
 
 ```bash
 script/setup
 ```
 
-`script/setup` verifies that both checkouts use the same commit, installs the
-repository-pinned uv and Python 3.12.13 below `.deps/`, creates `.venv`, and
-then repeats the same uv-only setup on node 1 over SSH. No system Python
-installation is required. Continue only after it ends with
-`AE two-node setup: PASS`.
+`script/setup` reads the preconfigured AE environment, verifies that both
+checkouts use the same commit, and performs the same uv-only installation on
+both nodes. No system Python installation is required. Continue only after it
+ends with `AE two-node setup: PASS`.
 
-### 3. Configure and run from node 0
-
-Set the experiment filesystem and coordinator variables on node 0:
-
-```bash
-export AE_NODE_ROOT=/path/to/node-0/experiment-filesystem
-export FLEXMAYA_MASTER_ADDR=<node-0-address>
-export FLEXMAYA_MASTER_PORT=29500
-export FLEXMAYA_CONTROL_PORT=29600
-export FLEXMAYA_PEER_NODE_ROOT=/path/to/node-1/experiment-filesystem
-```
-
-Make sure the supplied large-cluster trace links resolve, or set the overrides
-described under [External trace inputs](#external-trace-inputs).
-
-Start the complete reproduction once, on node 0:
+Then reproduce all paper results with one command on the same coordinator:
 
 ```bash
 script/run_all
 ```
 
-Do not start a matching command manually on node 1. `script/run_all` invokes
-each experiment runner on node 0. When an experiment needs both nodes, that
-runner opens SSH to node 1, starts the peer under the server guard, waits for
-both nodes, and returns the peer output to node 0 automatically.
+Do not start a matching command on the second node. When an experiment needs
+both nodes, its runner starts the peer through the existing AE connection,
+waits for both nodes, and returns the peer output automatically.
 
 `script/run_all` assigns one timestamped base run ID and runs E1 through E5 in
 paper order. It regenerates Table 4, Figures 1 and 5--8, Tables 6--8, and the
@@ -132,22 +107,23 @@ export MIN_GPFS_FREE_GIB=20
 ## Automatic two-node execution
 
 The automatic peer launch applies to both `script/run_all` and the individual
-experiment runners. E2 Figure 5 and E3 Figures 6--8 connect to node 1 when
-their command is started on node 0. The single `script/setup` command on node
-0 prepares both nodes before any experiment starts.
+experiment runners. E2 Figure 5 and E3 Figures 6--8 connect to the prepared
+peer automatically. The single `script/setup` command on the coordinator
+prepares both nodes before any experiment starts.
 
 ## Individual experiment runners
 
-Except for the separate E1 `real` path, run each command below once on node 0.
-The runner selects local or automatic two-node execution as required.
+Except for the separate E1 `real` path, run each command below once on the
+coordinator. The runner selects local or automatic two-node execution as
+required.
 
 | Experiment | Command or modes | Execution |
 | --- | --- | --- |
-| E1 | `script/run_e1`; `script/run_e1 real` is the separate 16-node path | Node 0 for the supplied-trace workflow |
-| E2 | `FIGURE5_RUN_ID=<id> script/run_e2` for Figure 5; `script/run_e2 table4` for Table 4 | Figure 5 uses nodes 0 and 1 automatically; Table 4 stays on node 0 |
-| E3 | `FIGURE6_RUN_ID=<id> script/run_e3`; `FIGURE7_RUN_ID=<id> script/run_e3 figure7 run`; `FIGURE8_RUN_ID=<id> script/run_e3 figure8 run` | Fresh Figure 6--8 runs use nodes 0 and 1 automatically; checks stay on node 0 |
-| E4 | `script/run_e4` | Node 0 |
-| E5 | `script/run_e5 paper-self-test`; guarded `script/e3/server.sh run <id> 8 -- script/run_e5 paper` | Node 0 |
+| E1 | `script/run_e1`; `script/run_e1 real` is the separate 16-node path | Coordinator for the supplied-trace workflow |
+| E2 | `FIGURE5_RUN_ID=<id> script/run_e2` for Figure 5; `script/run_e2 table4` for Table 4 | Figure 5 adds the peer automatically; Table 4 stays on the coordinator |
+| E3 | `FIGURE6_RUN_ID=<id> script/run_e3`; `FIGURE7_RUN_ID=<id> script/run_e3 figure7 run`; `FIGURE8_RUN_ID=<id> script/run_e3 figure8 run` | Fresh Figure 6--8 runs add the peer automatically; checks stay on the coordinator |
+| E4 | `script/run_e4` | Coordinator |
+| E5 | `script/run_e5 paper-self-test`; guarded `script/e3/server.sh run <id> 8 -- script/run_e5 paper` | Coordinator |
 
 Figure 7 modes are `self-test`, `probe`, `run`, `report`, and `verify`.
 Figure 8 modes are `self-test`, `run`, and `verify`. E5 also retains
