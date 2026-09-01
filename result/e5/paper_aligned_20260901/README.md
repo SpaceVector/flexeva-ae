@@ -1,5 +1,8 @@
 # E5 retained result
 
+This is the earlier memory-only snapshot. The current Table 8 and per-round
+speedup result is in `../paper_aligned_20260901_r3/`.
+
 This directory contains the compact output of the September 1 Table 8 run.
 The experiment captured one anchor and 32 distinct forced-route Routed-MoE
 candidates at 16 logical ranks (EP=8), then measured K=1, 8, and 32 resident

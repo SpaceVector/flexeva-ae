@@ -3,8 +3,8 @@
 `collect_real_routes.py`, `measure_paper_aligned.py`,
 `measure_case_speedup.py`, and `run_paper_aligned.sh` implement the primary
 32-distinct-candidate peak-RSS and paired per-round speedup paths. `bundle/`
-retains the frozen source for the separate submitted-value audit. Both paths
-are documented in [`../../E5.md`](../../E5.md).
+retains the frozen evaluator sources for the separate submitted-value audit.
+Both contracts are documented in [`E5.md`](E5.md).
 
 Run from the repository root:
 

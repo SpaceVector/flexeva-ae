@@ -444,7 +444,8 @@ def run_verify(args: argparse.Namespace) -> int:
             if not close(float(recomputed[system][key]), float(stored[system][key])):
                 raise AssertionError(f"summary mismatch: {system} K={k}")
             peaks.append(float(stored[system][key]))
-        # Allow the observed sub-MiB allocator noise while requiring K=32 > K=1.
+        # ponytail: tolerate sub-MiB allocator noise; tighten only if repeated
+        # server measurements show a larger stable resolution floor.
         if peaks[-1] <= peaks[0] or any(later + 1.0 < earlier for earlier, later in zip(peaks, peaks[1:])):
             raise AssertionError(f"peak RSS materially decreases: {system}")
     table_path = result_path.parent / "table8.csv"

@@ -1,0 +1,11 @@
+{
+  "anchor_excluded": true,
+  "candidate_rounds": 32,
+  "feedback_equivalent": true,
+  "limitation": "reference-method abstract events are grounded by reduced-shape FakeCUDA captures; the original different-parallelism manifest and production selective executor are unavailable",
+  "paired_repeats": 3,
+  "paper_shape": true,
+  "primary_metric": "per-round Maya-full / FlexEva-refresh",
+  "production_end_to_end_contract_recovered": false,
+  "status": "PASS"
+}
