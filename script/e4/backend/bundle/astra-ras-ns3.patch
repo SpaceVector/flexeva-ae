@@ -1,0 +1,1775 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 3708f39..5fd638f 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -59,6 +59,7 @@ file(GLOB srcs
+     "${CMAKE_CURRENT_SOURCE_DIR}/astra-sim/system/memory/*.cc"
+     "${CMAKE_CURRENT_SOURCE_DIR}/astra-sim/system/scheduling/*.cc"
+     "${CMAKE_CURRENT_SOURCE_DIR}/astra-sim/common/*.cc"
++    "${CMAKE_CURRENT_SOURCE_DIR}/astra-sim/ras/*.cc"
+     "${CMAKE_CURRENT_SOURCE_DIR}/extern/graph_frontend/chakra/src/third_party/utils/*.cc"
+     "${CMAKE_CURRENT_SOURCE_DIR}/extern/graph_frontend/chakra/schema/protobuf/*.cc"
+     "${CMAKE_CURRENT_SOURCE_DIR}/extern/graph_frontend/chakra/src/feeder_v3/*.cpp"
+diff --git a/astra-sim/network_frontend/ns3/AstraSimNetwork.cc b/astra-sim/network_frontend/ns3/AstraSimNetwork.cc
+index 3a6c699..81ec263 100644
+--- a/astra-sim/network_frontend/ns3/AstraSimNetwork.cc
++++ b/astra-sim/network_frontend/ns3/AstraSimNetwork.cc
+@@ -1,4 +1,6 @@
+ #include "astra-sim/common/AstraNetworkAPI.hh"
++#include "astra-sim/ras/RasReplayCache.hh"
++#include "astra-sim/ras/RasTraceRecorder.hh"
+ #include "astra-sim/system/Sys.hh"
+ #include "extern/remote_memory_backend/analytical/AnalyticalRemoteMemory.hh"
+ #include <json/json.hpp>
+@@ -18,11 +20,18 @@
+ #undef NS3_LOG_COMPAT_UNDEF_SYSLOG
+ #include "astra-sim/network_frontend/ns3/ns3_log_monkey_patch.h"
+ 
++#include <chrono>
++#include <cstdlib>
+ #include <execinfo.h>
++#include <cstdint>
+ #include <fstream>
++#include <iomanip>
+ #include <iostream>
++#include <memory>
+ #include <queue>
++#include <sstream>
+ #include <stdio.h>
++#include <stdexcept>
+ #include <string>
+ #include <thread>
+ #include <unistd.h>
+@@ -32,6 +41,267 @@ using namespace std;
+ using namespace ns3;
+ using json = nlohmann::json;
+ 
++namespace {
++
++std::string read_context_file(const std::string& path) {
++    if (path.find("empty") != std::string::npos) {
++        return "empty";
++    }
++
++    std::ifstream input(path, std::ios::in | std::ios::binary);
++    if (!input.is_open()) {
++        throw std::runtime_error("unable to open context file: " + path);
++    }
++    std::ostringstream contents;
++    contents << input.rdbuf();
++    return contents.str();
++}
++
++void append_context_field(std::ostringstream& context,
++                          const std::string& name,
++                          const std::string& value) {
++    context << name.size() << ':' << name << '=' << value.size() << ':'
++            << value << '\n';
++}
++
++std::string ns3_network_configuration_context(const std::string& path) {
++    std::istringstream lines(read_context_file(path));
++    std::ostringstream context;
++    std::string line;
++    while (std::getline(lines, line)) {
++        std::istringstream tokens(line);
++        std::string key;
++        std::string value;
++        tokens >> key >> value;
++        if (key == "TOPOLOGY_FILE" || key == "FLOW_FILE" ||
++            key == "TRACE_FILE") {
++            context << key << " ";
++            append_context_field(context, "contents",
++                                 read_context_file(value));
++        } else if (key == "TRACE_OUTPUT_FILE" || key == "FCT_OUTPUT_FILE" ||
++                   key == "PFC_OUTPUT_FILE" || key == "QLEN_MON_FILE") {
++            context << key << " <ignored-output-path>\n";
++        } else {
++            context << line << '\n';
++        }
++    }
++    return context.str();
++}
++
++std::string scalar_to_string(const double value) {
++    std::ostringstream output;
++    output << std::setprecision(17) << value;
++    return output.str();
++}
++
++uint64_t fnv1a64(const std::string& value, const uint64_t seed) {
++    uint64_t hash = 14695981039346656037ull ^ seed;
++    for (const unsigned char c : value) {
++        hash ^= c;
++        hash *= 1099511628211ull;
++    }
++    return hash;
++}
++
++std::string evaluation_context_fingerprint(
++    const std::string& backend_name,
++    const std::string& system_configuration,
++    const std::string& network_configuration,
++    const std::string& remote_memory_configuration,
++    const std::string& logical_topology_configuration,
++    const std::string& comm_group_configuration,
++    const int num_queues_per_dim,
++    const double comm_scale,
++    const double injection_scale,
++    const bool rendezvous_protocol) {
++    std::ostringstream context;
++    append_context_field(context, "backend_name", backend_name);
++    append_context_field(context, "system_configuration_contents",
++                         read_context_file(system_configuration));
++    append_context_field(context, "network_configuration_contents",
++                         ns3_network_configuration_context(
++                             network_configuration));
++    append_context_field(context, "remote_memory_configuration_contents",
++                         read_context_file(remote_memory_configuration));
++    append_context_field(context, "logical_topology_configuration_contents",
++                         read_context_file(logical_topology_configuration));
++    append_context_field(context, "comm_group_configuration_contents",
++                         read_context_file(comm_group_configuration));
++    append_context_field(context, "num_queues_per_dim",
++                         std::to_string(num_queues_per_dim));
++    append_context_field(context, "comm_scale", scalar_to_string(comm_scale));
++    append_context_field(context, "injection_scale",
++                         scalar_to_string(injection_scale));
++    append_context_field(context, "rendezvous_protocol",
++                         rendezvous_protocol ? "true" : "false");
++
++    const std::string serialized_context = context.str();
++    std::ostringstream fingerprint;
++    fingerprint << "fnv1a128:" << std::hex << std::setfill('0')
++                << std::setw(16)
++                << fnv1a64(serialized_context, 0x9ae16a3b2f90404full)
++                << std::setw(16)
++                << fnv1a64(serialized_context, 0xc3a5c85c97cb3127ull);
++    return fingerprint.str();
++}
++
++bool initialize_ras_context(const std::string& backend_name,
++                            const std::string& system_configuration,
++                            const std::string& network_configuration,
++                            const std::string& remote_memory_configuration,
++                            const std::string& logical_topology_configuration,
++                            const std::string& comm_group_configuration,
++                            const int num_queues_per_dim,
++                            const double comm_scale,
++                            const double injection_scale,
++                            const bool rendezvous_protocol) {
++    try {
++        const std::string fingerprint = evaluation_context_fingerprint(
++            backend_name, system_configuration, network_configuration,
++            remote_memory_configuration, logical_topology_configuration,
++            comm_group_configuration, num_queues_per_dim, comm_scale,
++            injection_scale, rendezvous_protocol);
++        AstraSim::RasReplayCache::set_current_context_fingerprint(fingerprint);
++        json payload = {{"context_schema", "ras-eval-context-v1"},
++                        {"context_fingerprint", fingerprint},
++                        {"backend_name", backend_name},
++                        {"num_queues_per_dim", num_queues_per_dim},
++                        {"comm_scale", comm_scale},
++                        {"injection_scale", injection_scale},
++                        {"rendezvous_protocol", rendezvous_protocol}};
++        AstraSim::RasTraceRecorder::get().record_event(
++            "context", "run_context", "global", payload.dump());
++    } catch (const std::exception& e) {
++        std::cerr << "ASTRA-sim RAS context initialization failed: "
++                  << e.what() << std::endl;
++        return false;
++    }
++    return true;
++}
++
++bool configure_ras_replay_cache(const std::string& replay_cache_path,
++                                const std::string& reuse_plan_path,
++                                const bool allow_environment = true) {
++    const bool has_replay_cache_path = !replay_cache_path.empty();
++    const bool has_reuse_plan_path = !reuse_plan_path.empty();
++    if (has_replay_cache_path != has_reuse_plan_path) {
++        std::cerr << "ASTRA-sim RAS replay requires both --ras-replay-cache "
++                  << "and --ras-reuse-plan when either is provided"
++                  << std::endl;
++        return false;
++    }
++
++    if (has_replay_cache_path) {
++        return AstraSim::RasReplayCache::get().load_from_files(
++            replay_cache_path, reuse_plan_path);
++    }
++
++    if (allow_environment) {
++        AstraSim::RasReplayCache::get().load_from_environment();
++    } else {
++        AstraSim::RasReplayCache::get().clear();
++    }
++    return true;
++}
++
++struct TimedSimulationPhaseResult {
++    std::string name;
++    double wall_seconds;
++    int64_t simulated_ns;
++};
++
++void record_timed_simulation_phase(
++    const TimedSimulationPhaseResult& result) {
++    json payload = {{"phase", "simulation"},
++                    {"name", result.name},
++                    {"wall_seconds", result.wall_seconds},
++                    {"simulated_ns", result.simulated_ns},
++                    {"excludes_process_initialization", true},
++                    {"excludes_backend_initialization", true}};
++    AstraSim::RasTraceRecorder::get().record_event(
++        "context", "simulation_phase", "global", payload.dump());
++    std::cout << "ASTRA-sim RAS simulation phase[" << result.name
++              << "]: wall_seconds="
++              << std::setprecision(9) << result.wall_seconds
++              << " simulated_ns=" << result.simulated_ns << std::endl;
++}
++
++struct HotRunConfig {
++    std::string name;
++    std::string workload_configuration;
++    std::string ras_replay_cache;
++    std::string ras_reuse_plan;
++};
++
++std::string required_json_string(const json& value,
++                                 const std::string& field,
++                                 const std::string& context) {
++    if (!value.contains(field) || !value[field].is_string() ||
++        value[field].get<std::string>().empty()) {
++        throw std::runtime_error(context + " missing non-empty string field " +
++                                 field);
++    }
++    return value[field].get<std::string>();
++}
++
++std::string optional_json_string(const json& value,
++                                 const std::string& field,
++                                 const std::string& fallback = "") {
++    if (!value.contains(field)) {
++        return fallback;
++    }
++    if (!value[field].is_string()) {
++        throw std::runtime_error("field " + field + " must be a string");
++    }
++    return value[field].get<std::string>();
++}
++
++std::vector<HotRunConfig> load_hot_run_manifest(const std::string& path) {
++    std::ifstream input(path);
++    if (!input.is_open()) {
++        throw std::runtime_error("unable to open RAS hot run manifest: " +
++                                 path);
++    }
++    json root;
++    input >> root;
++    if (!root.is_object() ||
++        root.value("schema_version", "") !=
++            "astra-sim-ns3-hot-runs-v1" ||
++        !root.contains("runs") || !root["runs"].is_array()) {
++        throw std::runtime_error(
++            "RAS hot run manifest must use schema "
++            "astra-sim-ns3-hot-runs-v1 and contain a runs array");
++    }
++    std::vector<HotRunConfig> runs;
++    int index = 0;
++    for (const auto& run : root["runs"]) {
++        if (!run.is_object()) {
++            throw std::runtime_error("RAS hot run entry must be an object");
++        }
++        const std::string context =
++            "RAS hot run entry " + std::to_string(index);
++        HotRunConfig config;
++        config.name = optional_json_string(
++            run, "name", "run" + std::to_string(index));
++        config.workload_configuration = required_json_string(
++            run, "workload_configuration", context);
++        config.ras_replay_cache = optional_json_string(
++            run, "ras_replay_cache",
++            optional_json_string(run, "replay_cache"));
++        config.ras_reuse_plan = optional_json_string(
++            run, "ras_reuse_plan",
++            optional_json_string(run, "reuse_plan"));
++        runs.push_back(config);
++        index++;
++    }
++    if (runs.empty()) {
++        throw std::runtime_error("RAS hot run manifest has no runs");
++    }
++    return runs;
++}
++
++}  // namespace
++
+ /**
+  * @class NS3BackendCompletionTracker
+  * @brief Tracks the completion status of ranks in the NS3 backend.
+@@ -58,14 +328,16 @@ class NS3BackendCompletionTracker {
+         }
+         if (num_unfinished_ranks_ == 0) {
+             AstraSim::LoggerFactory::get_logger("network")->debug(
+-                "All ranks have finished. Exiting simulation.");
++                "All ranks have finished. Stopping simulation.");
+             // cout << "All ranks have finished. Exiting simulation.\n";
+             Simulator::Stop();
+-            Simulator::Destroy();
+-            exit(0);
+         }
+     }
+ 
++    bool all_ranks_finished() const {
++        return num_unfinished_ranks_ == 0;
++    }
++
+   private:
+     int num_unfinished_ranks_;
+     vector<int> completion_tracker_;
+@@ -202,6 +474,9 @@ string memory_configuration;
+ string comm_group_configuration = "empty";
+ string logical_topology_configuration;
+ string logging_configuration = "empty";
++string ras_replay_cache;
++string ras_reuse_plan;
++string ras_hot_run_manifest;
+ int num_queues_per_dim = 1;
+ double comm_scale = 1;
+ double injection_scale = 1;
+@@ -260,6 +535,13 @@ void parse_args(int argc, char* argv[]) {
+                  logical_topology_configuration);
+     cmd.AddValue("logging-configuration", "Logging configuration file",
+                  logging_configuration);
++    cmd.AddValue("ras-replay-cache", "RAS replay cache JSON file",
++                 ras_replay_cache);
++    cmd.AddValue("ras-reuse-plan", "RAS reuse plan JSON file",
++                 ras_reuse_plan);
++    cmd.AddValue("ras-hot-run-manifest",
++                 "Run multiple RAS refreshes in one initialized ns-3 backend",
++                 ras_hot_run_manifest);
+ 
+     cmd.AddValue("num-queues-per-dim", "Number of queues per each dimension",
+                  num_queues_per_dim);
+@@ -271,6 +553,50 @@ void parse_args(int argc, char* argv[]) {
+     cmd.Parse(argc, argv);
+ }
+ 
++TimedSimulationPhaseResult run_workload_phase(
++    const std::string& phase_name,
++    const std::string& phase_workload_configuration,
++    Analytical::AnalyticalRemoteMemory* mem) {
++    reset_astra_ns3_runtime_state();
++    std::vector<ASTRASimNetwork*> networks(num_npus, nullptr);
++    std::vector<AstraSim::Sys*> systems(num_npus, nullptr);
++    NS3BackendCompletionTracker completion_tracker(num_npus);
++
++    for (int npu_id = 0; npu_id < num_npus; npu_id++) {
++        networks[npu_id] = new ASTRASimNetwork(npu_id, &completion_tracker);
++        systems[npu_id] = new AstraSim::Sys(
++            npu_id, phase_workload_configuration, comm_group_configuration,
++            system_configuration, mem, networks[npu_id], logical_dims,
++            queues_per_dim, injection_scale, comm_scale, rendezvous_protocol);
++    }
++
++    const int64_t simulated_start_ns = Simulator::Now().GetNanoSeconds();
++    const auto timed_phase_start = std::chrono::steady_clock::now();
++
++    for (int i = 0; i < num_npus; i++) {
++        systems[i]->workload->fire();
++    }
++
++    if (!completion_tracker.all_ranks_finished()) {
++        Simulator::Run();
++    }
++    const auto timed_phase_end = std::chrono::steady_clock::now();
++    const int64_t simulated_end_ns = Simulator::Now().GetNanoSeconds();
++
++    for (auto* system : systems) {
++        delete system;
++    }
++    for (auto* network : networks) {
++        delete network;
++    }
++
++    return {phase_name,
++            std::chrono::duration<double>(timed_phase_end -
++                                          timed_phase_start)
++                .count(),
++            simulated_end_ns - simulated_start_ns};
++}
++
+ int main(int argc, char* argv[]) {
+     LogComponentEnable("OnOffApplication", LOG_INFO);
+     LogComponentEnable("PacketSink", LOG_INFO);
+@@ -280,36 +606,58 @@ int main(int argc, char* argv[]) {
+     // Read network config and find logical dims.
+     parse_args(argc, argv);
+     AstraSim::LoggerFactory::init(logging_configuration);
++    if (!initialize_ras_context(
++            "ns3", system_configuration, network_configuration,
++            memory_configuration, logical_topology_configuration,
++            comm_group_configuration, num_queues_per_dim, comm_scale,
++            injection_scale, rendezvous_protocol)) {
++        return EXIT_FAILURE;
++    }
+     read_logical_topo_config(logical_topology_configuration, logical_dims);
+ 
+-    // Setup network & System layer.
+-    vector<ASTRASimNetwork*> networks(num_npus, nullptr);
+-    vector<AstraSim::Sys*> systems(num_npus, nullptr);
+     Analytical::AnalyticalRemoteMemory* mem =
+         new Analytical::AnalyticalRemoteMemory(memory_configuration);
+-    NS3BackendCompletionTracker* completion_tracker =
+-        new NS3BackendCompletionTracker(num_npus);
+-
+-    for (int npu_id = 0; npu_id < num_npus; npu_id++) {
+-        networks[npu_id] = new ASTRASimNetwork(npu_id, completion_tracker);
+-        systems[npu_id] = new AstraSim::Sys(
+-            npu_id, workload_configuration, comm_group_configuration,
+-            system_configuration, mem, networks[npu_id], logical_dims,
+-            queues_per_dim, injection_scale, comm_scale, rendezvous_protocol);
+-    }
+ 
+     // Initialize ns3 simulation.
+     if (auto ok = setup_ns3_simulation(network_configuration); ok == -1) {
+         std::cerr << "Fail to setup ns3 simulation." << std::endl;
++        delete mem;
+         return -1;
+     }
+ 
+-    // Tell workload layer to schedule first events.
+-    for (int i = 0; i < num_npus; i++) {
+-        systems[i]->workload->fire();
++    try {
++        if (!ras_hot_run_manifest.empty()) {
++            const std::vector<HotRunConfig> runs =
++                load_hot_run_manifest(ras_hot_run_manifest);
++            for (const auto& run : runs) {
++                if (!configure_ras_replay_cache(run.ras_replay_cache,
++                                                run.ras_reuse_plan, false)) {
++                    delete mem;
++                    Simulator::Destroy();
++                    return EXIT_FAILURE;
++                }
++                record_timed_simulation_phase(run_workload_phase(
++                    run.name, run.workload_configuration, mem));
++            }
++        } else {
++            if (!configure_ras_replay_cache(ras_replay_cache,
++                                            ras_reuse_plan)) {
++                delete mem;
++                Simulator::Destroy();
++                return EXIT_FAILURE;
++            }
++            record_timed_simulation_phase(run_workload_phase(
++                "single", workload_configuration, mem));
++        }
++    } catch (const std::exception& e) {
++        std::cerr << "ASTRA-sim RAS hot execution failed: " << e.what()
++                  << std::endl;
++        delete mem;
++        Simulator::Destroy();
++        return EXIT_FAILURE;
+     }
+ 
+-    // Run the simulation by triggering the ns3 event queue.
+-    Simulator::Run();
++    delete mem;
++    Simulator::Destroy();
+     return 0;
+ }
+diff --git a/astra-sim/network_frontend/ns3/entry.h b/astra-sim/network_frontend/ns3/entry.h
+index 7233b32..2a21476 100644
+--- a/astra-sim/network_frontend/ns3/entry.h
++++ b/astra-sim/network_frontend/ns3/entry.h
+@@ -118,7 +118,15 @@ map<MsgEventKey, MsgEvent> sim_recv_waiting_hash;
+ //   - key: A MsgEventKey isntance.
+ //   - value: The number of bytes that ns3 has simulated completed, but the
+ //   System layer has not yet called sim_recv
+-map<MsgEventKey, int> received_msg_standby_hash;
++map<MsgEventKey, int> received_msg_standby_hash;
++
++void reset_astra_ns3_runtime_state() {
++  sender_src_port_map.clear();
++  node_to_bytes_sent_map.clear();
++  sim_send_waiting_hash.clear();
++  sim_recv_waiting_hash.clear();
++  received_msg_standby_hash.clear();
++}
+ 
+ // send_flow commands the ns3 simulator to schedule a RDMA message to be sent
+ // between two pair of nodes. send_flow is triggered by sim_send.
+diff --git a/astra-sim/system/Sys.cc b/astra-sim/system/Sys.cc
+index d2a279b..47882b2 100644
+--- a/astra-sim/system/Sys.cc
++++ b/astra-sim/system/Sys.cc
+@@ -9,6 +9,7 @@ LICENSE file in the root directory of this source tree.
+ #include <iostream>
+ 
+ #include "astra-sim/common/Logging.hh"
++#include "astra-sim/ras/RasTraceRecorder.hh"
+ #include "astra-sim/system/BaseStream.hh"
+ #include "astra-sim/system/CollectivePlan.hh"
+ #include "astra-sim/system/DataSet.hh"
+@@ -41,6 +42,100 @@ namespace AstraSim {
+ uint8_t* Sys::dummy_data = new uint8_t[2];
+ vector<Sys*> Sys::all_sys;
+ 
++namespace {
++
++std::string ras_rank_lane(const Sys* sys) {
++    return "rank:" + std::to_string(sys->id);
++}
++
++std::string ras_dataset_id(const Sys* sys, const int dataset_id) {
++    return ras_rank_lane(sys) + "/dataset:" + std::to_string(dataset_id);
++}
++
++const char* ras_com_type_name(ComType type) {
++    switch (type) {
++    case ComType::None:
++        return "none";
++    case ComType::Reduce_Scatter:
++        return "reduce_scatter";
++    case ComType::All_Gather:
++        return "all_gather";
++    case ComType::All_Reduce:
++        return "all_reduce";
++    case ComType::All_to_All:
++        return "all_to_all";
++    case ComType::All_Reduce_All_to_All:
++        return "all_reduce_all_to_all";
++    }
++    return "unknown";
++}
++
++const char* ras_collective_impl_name(CollectiveImplType type) {
++    switch (type) {
++    case CollectiveImplType::Ring:
++        return "ring";
++    case CollectiveImplType::OneRing:
++        return "one_ring";
++    case CollectiveImplType::DoubleBinaryTree:
++        return "double_binary_tree";
++    case CollectiveImplType::Direct:
++        return "direct";
++    case CollectiveImplType::OneDirect:
++        return "one_direct";
++    case CollectiveImplType::HalvingDoubling:
++        return "halving_doubling";
++    case CollectiveImplType::OneHalvingDoubling:
++        return "one_halving_doubling";
++    case CollectiveImplType::LocalRingNodeA2AGlobalDBT:
++        return "local_ring_node_a2a_global_dbt";
++    case CollectiveImplType::CustomCollectiveImpl:
++        return "custom_collective";
++    }
++    return "unknown";
++}
++
++void record_collective_generation(Sys* sys,
++                                  DataSet* dataset,
++                                  uint64_t size,
++                                  ComType collective_type,
++                                  int explicit_priority,
++                                  CommunicatorGroup* communicator_group,
++                                  uint64_t workload_node_id) {
++    json payload = {{"tick", Sys::boostedTick()},
++                    {"rank", sys->id},
++                    {"dataset_id", dataset->my_id},
++                    {"event_id", ras_dataset_id(sys, dataset->my_id)},
++                    {"size", size},
++                    {"collective_type", ras_com_type_name(collective_type)},
++                    {"explicit_priority", explicit_priority},
++                    {"has_communicator_group", communicator_group != nullptr}};
++    if (workload_node_id != static_cast<uint64_t>(-1)) {
++        payload["workload_node_id"] = workload_node_id;
++    }
++    RasTraceRecorder::get().record_event(
++        "system", "collective_generate", ras_rank_lane(sys), payload.dump());
++}
++
++void record_collective_phase_creation(Sys* sys,
++                                      const CollectivePhase& phase,
++                                      CollectiveImpl* collective_impl) {
++    json payload = {
++        {"tick", Sys::boostedTick()},
++        {"rank", sys->id},
++        {"queue_id", phase.queue_id},
++        {"initial_data_size", phase.initial_data_size},
++        {"final_data_size", phase.final_data_size},
++        {"enabled", phase.enabled},
++        {"collective_type", ras_com_type_name(phase.comm_type)},
++        {"collective_impl",
++         ras_collective_impl_name(collective_impl->type)}};
++    RasTraceRecorder::get().record_event(
++        "system", "collective_phase_create", ras_rank_lane(sys),
++        payload.dump());
++}
++
++}  // namespace
++
+ // SchedulerUnit --------------------------------------------------------------
+ Sys::SchedulerUnit::SchedulerUnit(Sys* sys,
+                                   vector<int> queues,
+@@ -179,6 +274,7 @@ Sys::Sys(int id,
+     this->comm_NI = comm_NI;
+     this->comm_scale = comm_scale;
+     this->rendezvous_enabled = rendezvous_enabled;
++    this->simulation_epoch_start = Sys::boostedTick();
+ 
+     this->scheduler_unit = nullptr;
+     this->vLevels = nullptr;
+@@ -583,14 +679,15 @@ DataSet* Sys::generate_all_reduce(uint64_t size,
+         return generate_collective(size, logical_topologies["AllReduce"],
+                                    implementation_per_dimension,
+                                    involved_dimensions, ComType::All_Reduce,
+-                                   explicit_priority, communicator_group);
++                                   explicit_priority, communicator_group,
++                                   workload_node_id);
+     } else {
+         CollectivePlan* plan =
+             communicator_group->get_collective_plan(ComType::All_Reduce, workload_node_id);
+         return generate_collective(
+             size, plan->topology, plan->implementation_per_dimension,
+             plan->dimensions_involved, ComType::All_Reduce, explicit_priority,
+-            communicator_group);
++            communicator_group, workload_node_id);
+     }
+ }
+ 
+@@ -605,14 +702,15 @@ DataSet* Sys::generate_all_to_all(uint64_t size,
+         return generate_collective(size, logical_topologies["AllToAll"],
+                                    implementation_per_dimension,
+                                    involved_dimensions, ComType::All_to_All,
+-                                   explicit_priority, communicator_group);
++                                   explicit_priority, communicator_group,
++                                   workload_node_id);
+     } else {
+         CollectivePlan* plan =
+             communicator_group->get_collective_plan(ComType::All_to_All, workload_node_id);
+         return generate_collective(
+             size, plan->topology, plan->implementation_per_dimension,
+             plan->dimensions_involved, ComType::All_to_All, explicit_priority,
+-            communicator_group);
++            communicator_group, workload_node_id);
+     }
+ }
+ 
+@@ -627,14 +725,15 @@ DataSet* Sys::generate_all_gather(uint64_t size,
+         return generate_collective(size, logical_topologies["AllGather"],
+                                    implementation_per_dimension,
+                                    involved_dimensions, ComType::All_Gather,
+-                                   explicit_priority, communicator_group);
++                                   explicit_priority, communicator_group,
++                                   workload_node_id);
+     } else {
+         CollectivePlan* plan =
+             communicator_group->get_collective_plan(ComType::All_Gather, workload_node_id);
+         return generate_collective(
+             size, plan->topology, plan->implementation_per_dimension,
+             plan->dimensions_involved, ComType::All_Gather, explicit_priority,
+-            communicator_group);
++            communicator_group, workload_node_id);
+     }
+ }
+ 
+@@ -649,14 +748,15 @@ DataSet* Sys::generate_reduce_scatter(uint64_t size,
+         return generate_collective(size, logical_topologies["ReduceScatter"],
+                                    implementation_per_dimension,
+                                    involved_dimensions, ComType::Reduce_Scatter,
+-                                   explicit_priority, communicator_group);
++                                   explicit_priority, communicator_group,
++                                   workload_node_id);
+     } else {
+         CollectivePlan* plan =
+             communicator_group->get_collective_plan(ComType::Reduce_Scatter, workload_node_id);
+         return generate_collective(
+             size, plan->topology, plan->implementation_per_dimension,
+             plan->dimensions_involved, ComType::Reduce_Scatter,
+-            explicit_priority, communicator_group);
++            explicit_priority, communicator_group, workload_node_id);
+     }
+ }
+ 
+@@ -667,7 +767,8 @@ DataSet* Sys::generate_collective(
+     vector<bool> dimensions_involved,
+     ComType collective_type,
+     int explicit_priority,
+-    CommunicatorGroup* communicator_group) {
++    CommunicatorGroup* communicator_group,
++    uint64_t workload_node_id) {
+     // TODO(jinsun): For custom collective, we do not need the chunk_size here (since the chunk size is already determined)
+     // Therefore, we also do not need the 'preferred-dataset-splits' value from the system JSON input. 
+     // However, this variable is intertwined deeply in this function so that we cannot remove it for now.
+@@ -677,6 +778,9 @@ DataSet* Sys::generate_collective(
+     int streams = ceil(((double)size) / chunk_size);
+     uint64_t remain_size;
+     DataSet* dataset = new DataSet(streams);
++    record_collective_generation(this, dataset, size, collective_type,
++                                 explicit_priority, communicator_group,
++                                 workload_node_id);
+     int pri = get_priority(explicit_priority);
+     int count = 0;
+     if (id == 0 && (inter_dimension_scheduling ==
+@@ -972,6 +1076,7 @@ CollectivePhase Sys::generate_collective_phase(
+                            new Ring(collective_type, id,
+                                     (RingTopology*)topology, data_size,
+                                     direction, injection_policy));
++        record_collective_phase_creation(this, vn, collective_impl);
+         return vn;
+     } else if (collective_impl->type == CollectiveImplType::Direct ||
+                collective_impl->type == CollectiveImplType::OneDirect) {
+@@ -981,11 +1086,13 @@ CollectivePhase Sys::generate_collective_phase(
+                                             ->direct_collective_window,
+                                         id, (RingTopology*)topology, data_size,
+                                         direction, InjectionPolicy::Normal));
++        record_collective_phase_creation(this, vn, collective_impl);
+         return vn;
+     } else if (collective_impl->type == CollectiveImplType::DoubleBinaryTree) {
+         CollectivePhase vn(this, queue_id,
+                            new DoubleBinaryTreeAllReduce(
+                                id, (BinaryTree*)topology, data_size));
++        record_collective_phase_creation(this, vn, collective_impl);
+         return vn;
+     } else if (collective_impl->type == CollectiveImplType::HalvingDoubling ||
+                collective_impl->type ==
+@@ -994,10 +1101,12 @@ CollectivePhase Sys::generate_collective_phase(
+                            new HalvingDoubling(collective_type, id,
+                                                (RingTopology*)topology,
+                                                data_size));
++        record_collective_phase_creation(this, vn, collective_impl);
+         return vn;
+     } else if (collective_impl->type == CollectiveImplType::CustomCollectiveImpl) {
+         string filename = ((CustomCollectiveImpl*)collective_impl)->filename;
+         CollectivePhase vn(this, 0, new CustomAlgorithm(filename, id, queue_id, comm_group));
++        record_collective_phase_creation(this, vn, collective_impl);
+         return vn;
+     } else {
+         LoggerFactory::get_logger("system")->critical(
+diff --git a/astra-sim/system/Sys.hh b/astra-sim/system/Sys.hh
+index 7336481..6e0c77c 100644
+--- a/astra-sim/system/Sys.hh
++++ b/astra-sim/system/Sys.hh
+@@ -150,7 +150,8 @@ class Sys : public Callable {
+         std::vector<bool> dimensions_involved,
+         ComType collective_type,
+         int explicit_priority,
+-        CommunicatorGroup* communicator_group);
++        CommunicatorGroup* communicator_group,
++        uint64_t workload_node_id);
+     CollectivePhase generate_collective_phase(ComType collective_type,
+                                               BasicLogicalTopology* topology,
+                                               uint64_t data_size,
+@@ -327,6 +328,7 @@ class Sys : public Callable {
+ 
+     // statistics
+     bool trace_enabled;
++    Tick simulation_epoch_start;
+ 
+     // skip simulation for all nodes and use current duration
+     bool replay_only;
+diff --git a/astra-sim/system/WorkloadLayerHandlerData.cc b/astra-sim/system/WorkloadLayerHandlerData.cc
+index 1c45d5c..064187c 100644
+--- a/astra-sim/system/WorkloadLayerHandlerData.cc
++++ b/astra-sim/system/WorkloadLayerHandlerData.cc
+@@ -8,5 +8,8 @@ LICENSE file in the root directory of this source tree.
+ using namespace AstraSim;
+ 
+ WorkloadLayerHandlerData::WorkloadLayerHandlerData() {
++    sys_id = 0;
++    workload = nullptr;
+     node_id = 0;
++    ras_boundary_release = false;
+ }
+diff --git a/astra-sim/system/WorkloadLayerHandlerData.hh b/astra-sim/system/WorkloadLayerHandlerData.hh
+index 0075e3d..48495a3 100644
+--- a/astra-sim/system/WorkloadLayerHandlerData.hh
++++ b/astra-sim/system/WorkloadLayerHandlerData.hh
+@@ -18,6 +18,7 @@ class WorkloadLayerHandlerData : public BasicEventHandlerData, public MetaData {
+     int sys_id;
+     Workload* workload;
+     uint64_t node_id;
++    bool ras_boundary_release;
+     WorkloadLayerHandlerData();
+ };
+ 
+diff --git a/astra-sim/workload/LocalMemUsageTracker.cc b/astra-sim/workload/LocalMemUsageTracker.cc
+index 8cc7b4c..1993cfb 100644
+--- a/astra-sim/workload/LocalMemUsageTracker.cc
++++ b/astra-sim/workload/LocalMemUsageTracker.cc
+@@ -45,12 +45,8 @@ void LocalMemUsageTracker::recordReads(
+   Tick end) {
+   static std::vector<std::tuple<TensorId, uint64_t>> IOinfos;
+   IOinfos.clear();
+-  uint64_t nodeId = node->id();
+-
+   if (!node->has_attr("inputs")) {
+-    throw std::runtime_error("Attribute 'inputs' not found in node " +
+-      std::to_string(nodeId) +
+-      " (LocalMemUsageTracker::recordReads)");
++    return;
+   }
+ 
+   // use the explicit template type.
+@@ -59,7 +55,7 @@ void LocalMemUsageTracker::recordReads(
+       return;
+   }
+   const auto& values = attr.string_list().values();
+-  uint64_t parsedCount = parseIOInfos(values, IOinfos);
++  parseIOInfos(values, IOinfos);
+ 
+   for (const auto& iter : IOinfos) {
+     TensorId tensorName = std::get<0>(iter);
+@@ -104,11 +100,8 @@ void LocalMemUsageTracker::recordWrites(
+   Tick end) {
+   static std::vector<std::tuple<TensorId, uint64_t>> IOinfos;
+   IOinfos.clear();
+-  uint64_t nodeId = node->id();
+-
+   if (!node->has_attr("outputs")) {
+-    throw std::runtime_error("Attribute 'outputs' not found in node " +
+-      std::to_string(nodeId) + " (LocalMemUsageTracker::recordWrites)");
++    return;
+   }
+ 
+   auto attr = node->get_attr<ChakraAttr>("outputs");
+@@ -117,7 +110,7 @@ void LocalMemUsageTracker::recordWrites(
+   }
+ 
+   const auto& values = attr.string_list().values();
+-  uint64_t parsedCount = parseIOInfos(values, IOinfos);
++  parseIOInfos(values, IOinfos);
+ 
+   for (const auto& iter : IOinfos) {
+     TensorId tensorName = std::get<0>(iter);
+diff --git a/astra-sim/workload/Statistics.cc b/astra-sim/workload/Statistics.cc
+index 628d51b..4e05d69 100644
+--- a/astra-sim/workload/Statistics.cc
++++ b/astra-sim/workload/Statistics.cc
+@@ -270,16 +270,19 @@ void Statistics::post_processing() {
+     logger->info("sys[{}]. Post statistics processing start.",
+                  this->workload->sys->id);
+ 
+-    this->wall_time = 0;
++    Tick max_end_time = 0;
+     for (const auto& [node_id, stat] : operator_statistics) {
+         if (stat.end_time == Statistics::OperatorStatistics::INVALID_TICK) {
+             logger->critical("Node {} did not finish, start_time={}", node_id,
+                              stat.start_time);
+             exit(EXIT_FAILURE);
+         } else {
+-            this->wall_time = std::max(this->wall_time, stat.end_time);
++            max_end_time = std::max(max_end_time, stat.end_time);
+         }
+     }
++    const Tick epoch_start = this->workload->sys->simulation_epoch_start;
++    this->wall_time =
++        max_end_time >= epoch_start ? max_end_time - epoch_start : max_end_time;
+     extract_type_time();
+     if (workload->sys->roofline_enabled) {
+         extract_utilizations();
+diff --git a/astra-sim/workload/Workload.cc b/astra-sim/workload/Workload.cc
+index 8b33979..6b2934d 100644
+--- a/astra-sim/workload/Workload.cc
++++ b/astra-sim/workload/Workload.cc
+@@ -6,6 +6,8 @@ LICENSE file in the root directory of this source tree.
+ #include "astra-sim/workload/Workload.hh"
+ 
+ #include "astra-sim/common/Logging.hh"
++#include "astra-sim/ras/RasReplayCache.hh"
++#include "astra-sim/ras/RasTraceRecorder.hh"
+ #include "astra-sim/system/IntData.hh"
+ #include "astra-sim/system/MemEventHandlerData.hh"
+ #include "astra-sim/system/RecvPacketEventHandlerData.hh"
+@@ -13,9 +15,15 @@ LICENSE file in the root directory of this source tree.
+ #include "astra-sim/system/WorkloadLayerHandlerData.hh"
+ #include <json/json.hpp>
+ 
++#include <algorithm>
+ #include <iostream>
++#include <queue>
++#include <stdexcept>
++#include <sstream>
+ #include <stdlib.h>
++#include <unordered_set>
+ #include <unistd.h>
++#include <vector>
+ 
+ using namespace std;
+ using namespace AstraSim;
+@@ -25,6 +33,298 @@ using json = nlohmann::json;
+ typedef ChakraProtoMsg::NodeType ChakraNodeType;
+ typedef ChakraProtoMsg::CollectiveCommType ChakraCollectiveCommType;
+ 
++namespace {
++
++std::string ras_rank_lane(const Sys* sys) {
++    return "rank:" + std::to_string(sys->id);
++}
++
++std::string ras_workload_node_id(const Sys* sys, const uint64_t node_id) {
++    return ras_rank_lane(sys) + "/chakra:" + std::to_string(node_id);
++}
++
++std::vector<std::string> ras_workload_node_ids(
++    const Sys* sys,
++    const std::vector<NodeId>& node_ids) {
++    std::vector<std::string> event_ids;
++    event_ids.reserve(node_ids.size());
++    for (const NodeId node_id : node_ids) {
++        event_ids.push_back(ras_workload_node_id(sys, node_id));
++    }
++    return event_ids;
++}
++
++std::string ras_dataset_id(const Sys* sys, const int dataset_id) {
++    return ras_rank_lane(sys) + "/dataset:" + std::to_string(dataset_id);
++}
++
++std::vector<bool> collective_involved_dims(
++    const std::shared_ptr<Chakra::FeederV3::ETFeederNode>& node) {
++    std::vector<bool> involved_dims;
++    if (node->has_attr("involved_dim")) {
++        const ChakraProtoMsg::AttributeProto& attr =
++            node->get_attr_msg("involved_dim");
++
++        if (attr.has_bool_list()) {
++            const ChakraProtoMsg::BoolList& bool_list = attr.bool_list();
++            for (int i = 0; i < bool_list.values_size(); ++i) {
++                involved_dims.push_back(bool_list.values(i));
++            }
++        } else {
++            cerr << "Expected bool_list in involved_dim but found another type."
++                 << endl;
++            exit(EXIT_FAILURE);
++        }
++    } else {
++        for (int i = 0; i < 4; i++) {
++            involved_dims.push_back(true);
++        }
++    }
++    return involved_dims;
++}
++
++CommunicatorGroup* resolve_comm_group_for_ras(
++    Workload* workload,
++    const std::shared_ptr<Chakra::FeederV3::ETFeederNode>& node) {
++    std::string comm_group_name = node->pg_name<std::string>("");
++    if (comm_group_name == "" || comm_group_name == "0") {
++        return nullptr;
++    }
++
++    const int comm_group_id = std::stoi(comm_group_name);
++    if (workload->comm_groups.find(comm_group_id) ==
++        workload->comm_groups.end()) {
++        LoggerFactory::get_logger("workload")
++            ->critical(
++                "For rank {} ET node {}, communicator group {} not found",
++                workload->sys->id, node->id(), comm_group_id);
++        exit(EXIT_FAILURE);
++    }
++    return workload->comm_groups[comm_group_id];
++}
++
++std::vector<int> collective_group_ranks(const Sys* sys,
++                                        CommunicatorGroup* comm_group) {
++    if (comm_group != nullptr) {
++        return comm_group->involved_NPUs;
++    }
++
++    std::vector<int> ranks;
++    ranks.reserve(sys->total_nodes);
++    for (int i = 0; i < sys->total_nodes; ++i) {
++        ranks.push_back(i);
++    }
++    return ranks;
++}
++
++json collective_group_payload(
++    Workload* workload,
++    const std::shared_ptr<Chakra::FeederV3::ETFeederNode>& node) {
++    CommunicatorGroup* comm_group = resolve_comm_group_for_ras(workload, node);
++    const std::vector<bool> involved_dims = collective_involved_dims(node);
++    const std::vector<int> group_ranks =
++        collective_group_ranks(workload->sys, comm_group);
++    const std::string pg_name = node->pg_name<std::string>("");
++    const uint64_t comm_type = node->comm_type<uint64_t>();
++    const uint64_t comm_size = node->comm_size<uint64_t>();
++    const uint32_t comm_priority = node->comm_priority<uint32_t>();
++
++    json key = {{"node_id", node->id()},
++                {"comm_type", comm_type},
++                {"comm_size", comm_size},
++                {"comm_priority", comm_priority},
++                {"pg_name", pg_name},
++                {"involved_dim", involved_dims},
++                {"group_ranks", group_ranks}};
++
++    return {{"collective_group_key", key.dump()},
++            {"collective_node_id", node->id()},
++            {"collective_comm_type", comm_type},
++            {"collective_comm_size", comm_size},
++            {"collective_comm_priority", comm_priority},
++            {"collective_pg_name", pg_name},
++            {"collective_involved_dim", involved_dims},
++            {"collective_group_ranks", group_ranks}};
++}
++
++template <typename T>
++void add_node_attr_if_present(
++    json& payload,
++    const std::shared_ptr<Chakra::FeederV3::ETFeederNode>& node,
++    const char* attr_name) {
++    if (node->has_attr(attr_name)) {
++        payload[attr_name] = node->get_attr<T>(attr_name);
++    }
++}
++
++void record_chakra_node_event(
++    Sys* sys,
++    const char* kind,
++    const std::shared_ptr<Chakra::FeederV3::ETFeederNode>& node,
++    json payload = json::object()) {
++    if (!RasTraceRecorder::get().enabled()) {
++        return;
++    }
++
++    payload["tick"] = Sys::boostedTick();
++    payload["rank"] = sys->id;
++    payload["node_id"] = node->id();
++    payload["node_name"] = node->name();
++    payload["node_type"] = static_cast<uint64_t>(node->type());
++    payload["event_id"] = ras_workload_node_id(sys, node->id());
++    payload["runtime_micros"] = node->runtime();
++    const std::vector<NodeId> data_deps = node->data_deps();
++    if (!data_deps.empty()) {
++        payload["data_deps"] = data_deps;
++        payload["data_dep_event_ids"] = ras_workload_node_ids(sys, data_deps);
++    }
++    const std::vector<NodeId> ctrl_deps = node->ctrl_deps();
++    if (!ctrl_deps.empty()) {
++        payload["ctrl_deps"] = ctrl_deps;
++        payload["ctrl_dep_event_ids"] = ras_workload_node_ids(sys, ctrl_deps);
++    }
++    add_node_attr_if_present<bool>(payload, node, "is_cpu_op");
++    add_node_attr_if_present<uint64_t>(payload, node, "num_ops");
++    add_node_attr_if_present<uint64_t>(payload, node, "tensor_size");
++
++    const auto node_type = node->type();
++    if (node_type == ChakraNodeType::COMM_COLL_NODE ||
++        node_type == ChakraNodeType::COMM_SEND_NODE ||
++        node_type == ChakraNodeType::COMM_RECV_NODE) {
++        add_node_attr_if_present<uint64_t>(payload, node, "comm_type");
++        add_node_attr_if_present<uint64_t>(payload, node, "comm_size");
++        add_node_attr_if_present<uint32_t>(payload, node, "comm_src");
++        add_node_attr_if_present<uint32_t>(payload, node, "comm_dst");
++        add_node_attr_if_present<uint32_t>(payload, node, "comm_tag");
++    }
++    RasTraceRecorder::get().record_event("workload", kind, ras_rank_lane(sys),
++                                         payload.dump());
++}
++
++void record_ras_incremental_event(Sys* sys,
++                                  const char* kind,
++                                  json payload = json::object()) {
++    if (!RasTraceRecorder::get().enabled()) {
++        return;
++    }
++
++    payload["tick"] = Sys::boostedTick();
++    payload["rank"] = sys->id;
++    RasTraceRecorder::get().record_event("workload", kind, ras_rank_lane(sys),
++                                         payload.dump());
++}
++
++void record_workload_to_dataset_edge(
++    Sys* sys,
++    const std::shared_ptr<Chakra::FeederV3::ETFeederNode>& node,
++    const DataSet* dataset,
++    const char* kind,
++    json payload = json::object()) {
++    if (!RasTraceRecorder::get().enabled() || dataset == nullptr) {
++        return;
++    }
++
++    payload["tick"] = Sys::boostedTick();
++    payload["rank"] = sys->id;
++    payload["node_id"] = node->id();
++    payload["dataset_id"] = dataset->my_id;
++    const std::string src_id = ras_workload_node_id(sys, node->id());
++    const std::string dst_id = ras_dataset_id(sys, dataset->my_id);
++    payload["src_id"] = src_id;
++    payload["dst_id"] = dst_id;
++    RasTraceRecorder::get().record_edge("workload", src_id, "system", dst_id,
++                                        kind, payload.dump());
++}
++
++bool is_ras_partition_local_replayable_node_type(ChakraNodeType node_type) {
++    return node_type == ChakraNodeType::MEM_LOAD_NODE ||
++           node_type == ChakraNodeType::MEM_STORE_NODE ||
++           node_type == ChakraNodeType::COMP_NODE;
++}
++
++bool is_ras_comm_node_type(ChakraNodeType node_type) {
++    return node_type == ChakraNodeType::COMM_COLL_NODE ||
++           node_type == ChakraNodeType::COMM_SEND_NODE ||
++           node_type == ChakraNodeType::COMM_RECV_NODE;
++}
++
++bool lookup_ras_replay_duration(
++    const std::shared_ptr<Chakra::FeederV3::ETFeederNode>& node,
++    const std::string& partition_id,
++    const std::string& collective_group_key,
++    bool incremental_active,
++    uint64_t* duration) {
++    const ChakraNodeType node_type = node->type();
++    if (is_ras_partition_local_replayable_node_type(node_type)) {
++        if (incremental_active) {
++            RasReplayCache::WorkloadTiming timing;
++            if (!RasReplayCache::get()
++                     .incremental_workload_partition_can_reuse_duration(
++                         partition_id, collective_group_key) ||
++                !RasReplayCache::get().lookup_workload_timing(partition_id,
++                                                              &timing)) {
++                return false;
++            }
++            *duration = timing.duration;
++            return true;
++        }
++        return RasReplayCache::get().lookup_workload_duration(partition_id,
++                                                              duration);
++    }
++    if (node_type == ChakraNodeType::COMM_COLL_NODE) {
++        if (incremental_active &&
++            !RasReplayCache::get()
++                 .incremental_workload_partition_can_reuse_duration(
++                     partition_id, collective_group_key)) {
++            return false;
++        }
++        return RasReplayCache::get().lookup_collective_workload_duration(
++            partition_id, collective_group_key, duration);
++    }
++    return false;
++}
++
++bool should_suppress_incremental_refresh_issue(
++    const std::shared_ptr<Chakra::FeederV3::ETFeederNode>& node,
++    bool incremental_active,
++    bool has_cached_duration) {
++    return incremental_active && has_cached_duration &&
++           is_ras_partition_local_replayable_node_type(node->type());
++}
++
++void record_cached_resource_ticks(
++    HardwareResource* hw_resource,
++    const std::shared_ptr<Chakra::FeederV3::ETFeederNode>& node,
++    uint64_t duration) {
++    if (node->is_cpu_op()) {
++        hw_resource->tics_cpu_ops += duration;
++    } else if (node->type() == ChakraNodeType::COMP_NODE) {
++        hw_resource->tics_gpu_ops += duration;
++    } else {
++        hw_resource->tics_gpu_comms += duration;
++    }
++}
++
++void record_cached_comm_statistics(
++    Statistics* stats,
++    const std::shared_ptr<Chakra::FeederV3::ETFeederNode>& node,
++    uint64_t duration) {
++    if (!is_ras_comm_node_type(node->type()) ||
++        !node->has_attr("comm_size")) {
++        return;
++    }
++
++    auto& op_stat = stats->get_operator_statistics(node->id());
++    const uint64_t comm_size = node->comm_size<uint64_t>();
++    op_stat.comm_size = comm_size;
++    if (duration > 0) {
++        op_stat.network_bandwidth =
++            static_cast<double>(comm_size) / static_cast<double>(duration);
++    }
++}
++
++}  // namespace
++
+ Workload::Workload(Sys* sys, string et_filename, string comm_group_filename) {
+     string workload_filename = et_filename + "." + to_string(sys->id) + ".et";
+     // Check if workload filename exists
+@@ -53,6 +353,7 @@ Workload::Workload(Sys* sys, string et_filename, string comm_group_filename) {
+     initialize_comm_groups(comm_group_filename);
+     this->stats = new Statistics(this);
+     this->is_finished = false;
++    initialize_ras_incremental_scheduler();
+ }
+ 
+ Workload::~Workload() {
+@@ -98,6 +399,83 @@ void Workload::initialize_comm_groups(string comm_group_filename) {
+     }
+ }
+ 
++void Workload::initialize_ras_incremental_scheduler() {
++    RasReplayCache& replay_cache = RasReplayCache::get();
++    if (!replay_cache.incremental_execution_enabled()) {
++        return;
++    }
++
++    ras_incremental_active = true;
++    const auto executable_node_ids =
++        replay_cache.executable_workload_node_ids_for_rank(sys->id);
++    std::queue<uint64_t> executable_worklist;
++    std::unordered_set<uint64_t> queued_executable_nodes;
++
++    for (const uint64_t node_id : executable_node_ids) {
++        auto& state = ras_incremental_nodes[node_id];
++        state.executable = true;
++        state.boundary = false;
++        if (queued_executable_nodes.insert(node_id).second) {
++            executable_worklist.push(node_id);
++        }
++    }
++
++    while (!executable_worklist.empty()) {
++        const uint64_t node_id = executable_worklist.front();
++        executable_worklist.pop();
++        std::shared_ptr<ETFeederNode> node = et_feeder->lookupNode(node_id);
++
++        std::unordered_set<uint64_t> deps;
++        for (const NodeId dep_id : node->data_deps()) {
++            deps.insert(dep_id);
++        }
++        for (const NodeId dep_id : node->ctrl_deps()) {
++            deps.insert(dep_id);
++        }
++
++        for (const uint64_t dep_id : deps) {
++            const std::string dep_partition_id =
++                ras_workload_node_id(sys, dep_id);
++            auto& child_state = ras_incremental_nodes[node_id];
++            child_state.pending_parents.insert(dep_id);
++            ras_incremental_nodes[dep_id].children.insert(node_id);
++
++            if (executable_node_ids.find(dep_id) != executable_node_ids.end()) {
++                auto& dep_state = ras_incremental_nodes[dep_id];
++                dep_state.executable = true;
++                dep_state.boundary = false;
++                if (queued_executable_nodes.insert(dep_id).second) {
++                    executable_worklist.push(dep_id);
++                }
++                continue;
++            }
++
++            RasReplayCache::WorkloadTiming timing;
++            if (!replay_cache.workload_partition_is_reusable(
++                    dep_partition_id) ||
++                !replay_cache.lookup_workload_timing(dep_partition_id,
++                                                     &timing)) {
++                throw std::runtime_error(
++                    "RAS incremental execution dependency " +
++                    dep_partition_id +
++                    " is neither executable nor a reusable cached boundary");
++            }
++            auto& dep_state = ras_incremental_nodes[dep_id];
++            if (dep_state.executable) {
++                continue;
++            }
++            dep_state.boundary = true;
++            dep_state.timing = timing;
++        }
++    }
++
++    ras_incremental_pending_nodes = ras_incremental_nodes.size();
++    record_ras_incremental_event(
++        sys, "ras_incremental_init",
++        {{"executable_nodes", executable_node_ids.size()},
++         {"dag_nodes", ras_incremental_nodes.size()}});
++}
++
+ void Workload::issue_pytorch_pg_metadata(
+     std::shared_ptr<Chakra::FeederV3::ETFeederNode> node) {
+     // For read comm groups from torch, might overwrite previous.
+@@ -149,6 +527,143 @@ void Workload::issue_dep_free_nodes() {
+     }
+ }
+ 
++void Workload::start_ras_incremental_execution() {
++    if (!ras_incremental_active || ras_incremental_started || is_finished) {
++        return;
++    }
++    ras_incremental_started = true;
++    if (ras_incremental_nodes.empty()) {
++        complete_ras_incremental_execution();
++        return;
++    }
++    schedule_ras_incremental_ready_nodes();
++}
++
++void Workload::schedule_ras_incremental_ready_nodes() {
++    if (!ras_incremental_active || is_finished) {
++        return;
++    }
++
++    for (auto& item : ras_incremental_nodes) {
++        const uint64_t node_id = item.first;
++        RasIncrementalNodeState& state = item.second;
++        if (state.issued || state.finished || !state.pending_parents.empty()) {
++            continue;
++        }
++        if (state.boundary) {
++            schedule_ras_boundary_release(node_id);
++        } else if (state.executable) {
++            ras_incremental_ready_executable_nodes.insert(node_id);
++        }
++    }
++
++    bool issued_any = true;
++    while (issued_any) {
++        issued_any = false;
++        for (auto it = ras_incremental_ready_executable_nodes.begin();
++             it != ras_incremental_ready_executable_nodes.end();) {
++            const uint64_t node_id = *it;
++            auto state_it = ras_incremental_nodes.find(node_id);
++            if (state_it == ras_incremental_nodes.end() ||
++                state_it->second.issued || state_it->second.finished) {
++                it = ras_incremental_ready_executable_nodes.erase(it);
++                continue;
++            }
++            std::shared_ptr<ETFeederNode> node = et_feeder->lookupNode(node_id);
++            if (!hw_resource->is_available(node)) {
++                ++it;
++                continue;
++            }
++            state_it->second.issued = true;
++            it = ras_incremental_ready_executable_nodes.erase(it);
++            record_chakra_node_event(sys, "ras_incremental_ready", node);
++            issue(node);
++            issued_any = true;
++            break;
++        }
++    }
++}
++
++void Workload::schedule_ras_boundary_release(uint64_t node_id) {
++    auto state_it = ras_incremental_nodes.find(node_id);
++    if (state_it == ras_incremental_nodes.end() || state_it->second.issued ||
++        state_it->second.finished || !state_it->second.boundary) {
++        return;
++    }
++    state_it->second.issued = true;
++
++    const uint64_t finish_tick = state_it->second.timing.finish_tick;
++    const Tick target_tick = sys->simulation_epoch_start + finish_tick;
++    const Tick now = Sys::boostedTick();
++    const Tick delay = target_tick > now ? target_tick - now : 0;
++
++    if (delay == 0) {
++        finish_ras_incremental_node(node_id);
++        return;
++    }
++
++    WorkloadLayerHandlerData* wlhd = new WorkloadLayerHandlerData;
++    wlhd->node_id = node_id;
++    wlhd->ras_boundary_release = true;
++    sys->register_event(this, EventType::General, wlhd, delay);
++}
++
++void Workload::finish_ras_incremental_node(uint64_t node_id) {
++    if (!ras_incremental_active || is_finished) {
++        return;
++    }
++    auto state_it = ras_incremental_nodes.find(node_id);
++    if (state_it == ras_incremental_nodes.end() || state_it->second.finished) {
++        return;
++    }
++
++    RasIncrementalNodeState& state = state_it->second;
++    state.finished = true;
++    ras_incremental_ready_executable_nodes.erase(node_id);
++    if (ras_incremental_pending_nodes > 0) {
++        --ras_incremental_pending_nodes;
++    }
++
++    if (state.boundary) {
++        std::shared_ptr<ETFeederNode> node = et_feeder->lookupNode(node_id);
++        record_chakra_node_event(
++            sys, "chakra_node_boundary_release", node,
++            {{"cached_finish_tick", state.timing.finish_tick},
++             {"cached_issue_tick", state.timing.issue_tick},
++             {"cached_duration", state.timing.duration},
++             {"reuse_partition_id", ras_workload_node_id(sys, node_id)}});
++    }
++
++    for (const uint64_t child_id : state.children) {
++        auto child_it = ras_incremental_nodes.find(child_id);
++        if (child_it != ras_incremental_nodes.end()) {
++            child_it->second.pending_parents.erase(node_id);
++        }
++    }
++
++    if (ras_incremental_complete()) {
++        complete_ras_incremental_execution();
++        return;
++    }
++    schedule_ras_incremental_ready_nodes();
++}
++
++bool Workload::ras_incremental_complete() const {
++    return ras_incremental_active && ras_incremental_pending_nodes == 0;
++}
++
++void Workload::complete_ras_incremental_execution() {
++    if (is_finished) {
++        return;
++    }
++    record_ras_incremental_event(
++        sys, "ras_incremental_complete",
++        {{"dag_nodes", ras_incremental_nodes.size()}});
++    report();
++    sys->comm_NI->sim_notify_finished();
++    is_finished = true;
++}
++
+ void Workload::issue(shared_ptr<Chakra::FeederV3::ETFeederNode> node) {
+     auto logger = LoggerFactory::get_logger("workload");
+     if (sys->trace_enabled) {
+@@ -158,13 +673,49 @@ void Workload::issue(shared_ptr<Chakra::FeederV3::ETFeederNode> node) {
+                       static_cast<uint64_t>(node->type()));
+     }
+ 
+-    this->et_feeder->getDependancyResolver().take_node(node->id());
++    json ras_issue_payload = json::object();
++    std::string collective_group_key;
++    if (node->type() == ChakraNodeType::COMM_COLL_NODE) {
++        ras_issue_payload = collective_group_payload(this, node);
++        collective_group_key =
++            ras_issue_payload["collective_group_key"].get<std::string>();
++    }
++    if (!ras_incremental_active) {
++        this->et_feeder->getDependancyResolver().take_node(node->id());
++    }
++
++    const std::string partition_id = ras_workload_node_id(sys, node->id());
++    uint64_t cached_duration = 0;
++    const bool has_cached_duration = lookup_ras_replay_duration(
++        node, partition_id, collective_group_key, ras_incremental_active,
++        &cached_duration);
++    if (!should_suppress_incremental_refresh_issue(
++            node, ras_incremental_active, has_cached_duration)) {
++        record_chakra_node_event(sys, "chakra_node_issue", node,
++                                 ras_issue_payload);
++    }
++
+     this->hw_resource->occupy(node);
+     // stats->record_end will be called in Workload::call
+     stats->record_start(node, Sys::boostedTick());
+     if (this->sys->track_local_mem) {
+         this->local_mem_usage_tracker->recordStart(node, Sys::boostedTick());
+     }
++
++    if (has_cached_duration) {
++        WorkloadLayerHandlerData* wlhd = new WorkloadLayerHandlerData;
++        wlhd->node_id = node->id();
++        record_cached_resource_ticks(hw_resource, node, cached_duration);
++        record_cached_comm_statistics(stats, node, cached_duration);
++        json reuse_payload = ras_issue_payload;
++        reuse_payload["cached_duration"] = cached_duration;
++        reuse_payload["reuse_partition_id"] = partition_id;
++        record_chakra_node_event(
++            sys, "chakra_node_reuse", node, reuse_payload);
++        sys->register_event(this, EventType::General, wlhd, cached_duration);
++        return;
++    }
++
+     if (sys->replay_only) {
+         issue_replay(node);
+     } else {
+@@ -303,36 +854,7 @@ void Workload::issue_comm(shared_ptr<Chakra::FeederV3::ETFeederNode> node) {
+ 
+ void Workload::issue_coll_comm(
+     shared_ptr<Chakra::FeederV3::ETFeederNode> node) {
+-    const bool has_involve_dims = node->has_attr("involve_dims");
+-    std::vector<bool> involved_dims;
+-    if (node->has_attr("involved_dim")) {
+-        const ChakraProtoMsg::AttributeProto& attr =
+-            node->get_attr_msg("involved_dim");
+-
+-        // Ensure the attribute is of type bool_list before accessing
+-        if (attr.has_bool_list()) {
+-            const ChakraProtoMsg::BoolList& bool_list = attr.bool_list();
+-
+-            // Traverse bool_list and add values to involved_dim
+-            for (int i = 0; i < bool_list.values_size(); ++i) {
+-                involved_dims.push_back(bool_list.values(i));
+-            }
+-        } else {
+-            cerr << "Expected bool_list in involved_dim but found another type."
+-                 << endl;
+-            exit(EXIT_FAILURE);
+-        }
+-    } else {
+-        // involved_dims does not exist in ETFeeder.
+-        // Assume involved_dims = [1,1,1,1,1] which we could simulate
+-        // 5-Dimension. Could use Process Group to build involved_dims later.
+-        // Once process group is implemented, you should get
+-        // that with node->pg_name()
+-
+-        for (int i = 0; i < 4; i++) {
+-            involved_dims.push_back(true);
+-        }
+-    }
++    std::vector<bool> involved_dims = collective_involved_dims(node);
+ 
+     CommunicatorGroup* comm_group = extract_comm_group(node);
+     const auto comm_type =
+@@ -347,24 +869,44 @@ void Workload::issue_coll_comm(
+     if (comm_type == ChakraCollectiveCommType::ALL_REDUCE) {
+         DataSet* fp = sys->generate_all_reduce(comm_size, involved_dims,
+                                                comm_group, comm_priority, node->id());
++        record_workload_to_dataset_edge(
++            sys, node, fp, "collective_boundary",
++            {{"comm_type", "ALL_REDUCE"},
++             {"comm_size", comm_size},
++             {"comm_priority", comm_priority}});
+         collective_comm_node_id_map[fp->my_id] = node->id();
+         collective_comm_wrapper_map[fp->my_id] = fp;
+         fp->set_notifier(this, EventType::CollectiveCommunicationFinished);
+     } else if (comm_type == ChakraCollectiveCommType::ALL_TO_ALL) {
+         DataSet* fp = sys->generate_all_to_all(comm_size, involved_dims,
+                                                comm_group, comm_priority, node->id());
++        record_workload_to_dataset_edge(
++            sys, node, fp, "collective_boundary",
++            {{"comm_type", "ALL_TO_ALL"},
++             {"comm_size", comm_size},
++             {"comm_priority", comm_priority}});
+         collective_comm_node_id_map[fp->my_id] = node->id();
+         collective_comm_wrapper_map[fp->my_id] = fp;
+         fp->set_notifier(this, EventType::CollectiveCommunicationFinished);
+     } else if (comm_type == ChakraCollectiveCommType::ALL_GATHER) {
+         DataSet* fp = sys->generate_all_gather(comm_size, involved_dims,
+                                                comm_group, comm_priority, node->id());
++        record_workload_to_dataset_edge(
++            sys, node, fp, "collective_boundary",
++            {{"comm_type", "ALL_GATHER"},
++             {"comm_size", comm_size},
++             {"comm_priority", comm_priority}});
+         collective_comm_node_id_map[fp->my_id] = node->id();
+         collective_comm_wrapper_map[fp->my_id] = fp;
+         fp->set_notifier(this, EventType::CollectiveCommunicationFinished);
+     } else if (comm_type == ChakraCollectiveCommType::REDUCE_SCATTER) {
+         DataSet* fp = sys->generate_reduce_scatter(comm_size, involved_dims,
+                                                    comm_group, comm_priority, node->id());
++        record_workload_to_dataset_edge(
++            sys, node, fp, "collective_boundary",
++            {{"comm_type", "REDUCE_SCATTER"},
++             {"comm_size", comm_size},
++             {"comm_priority", comm_priority}});
+         collective_comm_node_id_map[fp->my_id] = node->id();
+         collective_comm_wrapper_map[fp->my_id] = fp;
+         fp->set_notifier(this, EventType::CollectiveCommunicationFinished);
+@@ -378,6 +920,11 @@ void Workload::issue_coll_comm(
+         }
+         DataSet* fp = new DataSet(1);
+         fp->set_notifier(this, EventType::CollectiveCommunicationFinished);
++        record_workload_to_dataset_edge(
++            sys, node, fp, "collective_boundary",
++            {{"comm_type", "BROADCAST"},
++             {"comm_size", comm_size},
++             {"comm_priority", comm_priority}});
+         collective_comm_node_id_map[fp->my_id] = node->id();
+         collective_comm_wrapper_map[fp->my_id] = fp;
+         sys->register_event(fp, EventType::General, nullptr,
+@@ -402,6 +949,9 @@ void Workload::issue_send_comm(
+     stats->get_operator_statistics(node->id()).comm_size = size;
+     const auto tag = node->comm_tag<uint32_t>();
+ 
++    // P2P replay is disabled; leave native send unlinked until exact chunk ids
++    // are available for workload-to-network RAS edges.
++
+     sim_request snd_req;
+     snd_req.srcRank = src;
+     snd_req.dstRank = dst;
+@@ -428,6 +978,9 @@ void Workload::issue_recv_comm(
+     stats->get_operator_statistics(node->id()).comm_size = size;
+     const auto tag = node->comm_tag<uint32_t>();
+ 
++    // P2P replay is disabled; leave native recv unlinked until exact chunk ids
++    // are available for workload-to-network RAS edges.
++
+     sim_request rcv_req;
+     RecvPacketEventHandlerData* rcehd = new RecvPacketEventHandlerData;
+     rcehd->wlhd = new WorkloadLayerHandlerData;
+@@ -441,8 +994,11 @@ void Workload::issue_recv_comm(
+ 
+ void Workload::skip_invalid(shared_ptr<Chakra::FeederV3::ETFeederNode> node) {
+     const auto node_id = node->id();
+-    auto& dependancy_resolver = this->et_feeder->getDependancyResolver();
+-    dependancy_resolver.finish_node(node_id);
++    record_chakra_node_event(sys, "chakra_node_skip", node);
++    if (!ras_incremental_active) {
++        auto& dependancy_resolver = this->et_feeder->getDependancyResolver();
++        dependancy_resolver.finish_node(node_id);
++    }
+     auto logger = LoggerFactory::get_logger("workload");
+     logger->debug("callback,sys->id={}, tick={}, node->id={}, "
+                   "node->name={}, node->type={}",
+@@ -453,6 +1009,9 @@ void Workload::skip_invalid(shared_ptr<Chakra::FeederV3::ETFeederNode> node) {
+     if (this->sys->track_local_mem) {
+         this->local_mem_usage_tracker->recordEnd(node, Sys::boostedTick());
+     }
++    if (ras_incremental_active) {
++        finish_ras_incremental_node(node_id);
++    }
+ }
+ 
+ void Workload::call(EventType event, CallData* data) {
+@@ -477,6 +1036,12 @@ void Workload::call(EventType event, CallData* data) {
+                         static_cast<uint64_t>(node->type()));
+         }
+ 
++        record_chakra_node_event(
++            sys, "chakra_node_finish", node,
++            {{"finish_reason", "collective"},
++             {"dataset_id", coll_comm_id},
++             {"execution_time", int_data->execution_time}});
++
+         hw_resource->release(node);
+         stats->record_end(node, Sys::boostedTick());
+ 
+@@ -493,9 +1058,12 @@ void Workload::call(EventType event, CallData* data) {
+             this->local_mem_usage_tracker->recordEnd(node, Sys::boostedTick());
+         }
+ 
+-        this->et_feeder->getDependancyResolver().finish_node(node_id);
+-
+-        issue_dep_free_nodes();
++        if (ras_incremental_active) {
++            finish_ras_incremental_node(node_id);
++        } else {
++            this->et_feeder->getDependancyResolver().finish_node(node_id);
++            issue_dep_free_nodes();
++        }
+ 
+         // The Dataset class provides statistics that should be used later to
+         // dump more statistics in the workload layer
+@@ -504,9 +1072,18 @@ void Workload::call(EventType event, CallData* data) {
+ 
+     } else {
+         if (data == nullptr) {
++            if (ras_incremental_active) {
++                start_ras_incremental_execution();
++                return;
++            }
+             issue_dep_free_nodes();
+         } else {
+             WorkloadLayerHandlerData* wlhd = (WorkloadLayerHandlerData*)data;
++            if (ras_incremental_active && wlhd->ras_boundary_release) {
++                finish_ras_incremental_node(wlhd->node_id);
++                delete wlhd;
++                return;
++            }
+             shared_ptr<Chakra::FeederV3::ETFeederNode> node =
+                 et_feeder->lookupNode(wlhd->node_id);
+ 
+@@ -518,6 +1095,10 @@ void Workload::call(EventType event, CallData* data) {
+                             node->name(), static_cast<uint64_t>(node->type()));
+             }
+ 
++            record_chakra_node_event(
++                sys, "chakra_node_finish", node,
++                {{"finish_reason", static_cast<uint64_t>(event)}});
++
+             hw_resource->release(node);
+             stats->record_end(node, Sys::boostedTick());
+ 
+@@ -541,14 +1122,22 @@ void Workload::call(EventType event, CallData* data) {
+                                                          Sys::boostedTick());
+             }
+ 
+-            this->et_feeder->getDependancyResolver().finish_node(wlhd->node_id);
+-
+-            issue_dep_free_nodes();
++            if (ras_incremental_active) {
++                finish_ras_incremental_node(wlhd->node_id);
++            } else {
++                this->et_feeder->getDependancyResolver().finish_node(
++                    wlhd->node_id);
++                issue_dep_free_nodes();
++            }
+ 
+             delete wlhd;
+         }
+     }
+ 
++    if (ras_incremental_active) {
++        return;
++    }
++
+     const auto& dep_resolver = this->et_feeder->getDependancyResolver();
+     if ((dep_resolver.get_dependancy_free_nodes().empty()) &&
+         (dep_resolver.get_ongoing_nodes().empty()) &&
+@@ -562,6 +1151,10 @@ void Workload::call(EventType event, CallData* data) {
+ }
+ 
+ void Workload::fire() {
++    if (ras_incremental_active) {
++        start_ras_incremental_execution();
++        return;
++    }
+     call(EventType::General, NULL);
+ }
+ 
+diff --git a/astra-sim/workload/Workload.hh b/astra-sim/workload/Workload.hh
+index 7a06fec..b7aec75 100644
+--- a/astra-sim/workload/Workload.hh
++++ b/astra-sim/workload/Workload.hh
+@@ -6,10 +6,15 @@ LICENSE file in the root directory of this source tree.
+ #ifndef __WORKLOAD_HH__
+ #define __WORKLOAD_HH__
+ 
++#include <cstdint>
+ #include <memory>
++#include <set>
+ #include <string>
+ #include <unordered_map>
++#include <unordered_set>
++#include <vector>
+ 
++#include "astra-sim/ras/RasReplayCache.hh"
+ #include "astra-sim/system/Callable.hh"
+ #include "astra-sim/system/CommunicatorGroup.hh"
+ #include "astra-sim/workload/HardwareResource.hh"
+@@ -65,6 +70,31 @@ class Workload : public Callable {
+     bool is_finished;
+ 
+   private:
++    struct RasIncrementalNodeState {
++        bool executable = false;
++        bool boundary = false;
++        bool issued = false;
++        bool finished = false;
++        RasReplayCache::WorkloadTiming timing;
++        std::unordered_set<uint64_t> pending_parents;
++        std::unordered_set<uint64_t> children;
++    };
++
++    bool ras_incremental_active = false;
++    bool ras_incremental_started = false;
++    uint64_t ras_incremental_pending_nodes = 0;
++    std::unordered_map<uint64_t, RasIncrementalNodeState>
++        ras_incremental_nodes;
++    std::set<uint64_t> ras_incremental_ready_executable_nodes;
++
++    void initialize_ras_incremental_scheduler();
++    void start_ras_incremental_execution();
++    void schedule_ras_incremental_ready_nodes();
++    void schedule_ras_boundary_release(uint64_t node_id);
++    void finish_ras_incremental_node(uint64_t node_id);
++    void complete_ras_incremental_execution();
++    bool ras_incremental_complete() const;
++
+     // From the ET node, find out the corresponding communicator group, and
+     // return the pointer. If no communicator group is specified for this ET
+     // node, return nullptr.

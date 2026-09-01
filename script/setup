@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+PYTHON_BIN="${PYTHON_BIN:-python3}"
+JOBS="${JOBS:-8}"
+MAYA_ROOT="${MAYA_ROOT:-$ROOT/FlexEva/backends/maya}"
+PROOT_BIN="${PROOT_BIN:-$ROOT/.deps/proot-5.3.1/bin/proot}"
+
+if [[ "$PYTHON_BIN" != */* ]]; then
+    PYTHON_BIN="$(command -v "$PYTHON_BIN" || true)"
+fi
+[[ -n "$PYTHON_BIN" ]] || { echo "setup: Python is unavailable" >&2; exit 2; }
+PYTHON_BIN="$(realpath -e "$PYTHON_BIN")"
+PYTHON_INCLUDE_DIR="$($PYTHON_BIN -c 'import sysconfig; print(sysconfig.get_config_var("INCLUDEPY"))')"
+PYTHON_LIBRARY="$($PYTHON_BIN -c 'import pathlib, sys, sysconfig; names=(sysconfig.get_config_var("LDLIBRARY"), f"libpython{sys.version_info.major}.{sys.version_info.minor}.so"); roots=(sysconfig.get_config_var("LIBDIR"), sysconfig.get_config_var("LIBPL")); print(next((pathlib.Path(root) / name for root in roots for name in names if root and name and (pathlib.Path(root) / name).exists()), ""))')"
+test -f "$PYTHON_INCLUDE_DIR/Python.h" || {
+    echo "setup: Python development headers are missing for $PYTHON_BIN" >&2
+    exit 2
+}
+test -f "$PYTHON_LIBRARY" || { echo "setup: Python shared library is missing: $PYTHON_LIBRARY" >&2; exit 2; }
+
+"$PYTHON_BIN" -m pip install -r "$ROOT/requirements.txt" \
+    -r "$MAYA_ROOT/gpu_estimator/fake_driver_xgboost_provider_runtime_only_bundle/requirements.txt"
+
+if ! "$PYTHON_BIN" -c 'import torch' >/dev/null 2>&1; then
+    TORCH_INDEX_URL="${TORCH_INDEX_URL:-https://download.pytorch.org/whl/cu128}"
+    "$PYTHON_BIN" -m pip install --index-url "$TORCH_INDEX_URL" "torch==2.8.0"
+fi
+
+"$PYTHON_BIN" - <<'PY'
+import torch
+
+if torch.version.cuda is None:
+    raise SystemExit("setup: install a CUDA-enabled PyTorch wheel before running GPU experiments")
+print(f"PyTorch {torch.__version__} (CUDA {torch.version.cuda})")
+PY
+
+(
+    cd "$ROOT/FlexEva/flexmaya_ras"
+    "$PYTHON_BIN" setup.py build_ext --inplace
+)
+
+cmake -S "$MAYA_ROOT/fake-cuda" -B "$MAYA_ROOT/fake-cuda/build" -DCMAKE_BUILD_TYPE=Release
+cmake --build "$MAYA_ROOT/fake-cuda/build" --parallel "$JOBS"
+
+cmake -S "$MAYA_ROOT/CppEvent" -B "$MAYA_ROOT/build/CppEvent" \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCPPEVENT_BUILD_PYTHON=ON \
+    -DPython_EXECUTABLE="$PYTHON_BIN" \
+    -DPython_INCLUDE_DIR="$PYTHON_INCLUDE_DIR" \
+    -DPython_LIBRARY="$PYTHON_LIBRARY" \
+    -DPython3_EXECUTABLE="$PYTHON_BIN" \
+    -DPython3_INCLUDE_DIR="$PYTHON_INCLUDE_DIR" \
+    -DPython3_LIBRARY="$PYTHON_LIBRARY"
+cmake --build "$MAYA_ROOT/build/CppEvent" --parallel "$JOBS"
+
+cmake -S "$MAYA_ROOT/cpp/lowlevel_interface" -B "$MAYA_ROOT/build/lowlevel-interface" \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DLLI_ENABLE_WRAPPER_BUILDS=ON \
+    -DPython3_EXECUTABLE="$PYTHON_BIN"
+cmake --build "$MAYA_ROOT/build/lowlevel-interface" --parallel "$JOBS"
+
+if [[ ! -x "$PROOT_BIN" ]]; then
+    [[ "$PROOT_BIN" == "$ROOT/.deps/proot-5.3.1/bin/proot" ]] || {
+        echo "setup: PRoot is unavailable: $PROOT_BIN" >&2
+        exit 2
+    }
+    if ! "$ROOT/script/setup-proot.sh" check >/dev/null 2>&1; then
+        "$ROOT/script/setup-proot.sh" build
+    fi
+fi
+
+PYTHON_BIN="$PYTHON_BIN" MAYA_ROOT="$MAYA_ROOT" PROOT_BIN="$PROOT_BIN" \
+    "$ROOT/script/check_setup"
+echo "AE setup: PASS"

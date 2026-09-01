@@ -1,0 +1,40 @@
+{
+  "description": "Single node with 4x NVIDIA A100 GPUs connected via NVLink",
+  "machines": [
+    {
+      "id": "node0",
+      "hostname": "localhost",
+      "cpus": [
+        {"id": "cpu:0", "numa_node": "numa:0"}
+      ],
+      "nics": [
+        {
+          "id": "mlx5:0",
+          "model": "ConnectX-6",
+          "gpu_group": [0, 1, 2, 3]
+        }
+      ],
+      "gpus": [
+        {"id": "gpu:0", "model": "A100", "cpu_index": 0, "nic_index": 0},
+        {"id": "gpu:1", "model": "A100", "cpu_index": 0, "nic_index": 0},
+        {"id": "gpu:2", "model": "A100", "cpu_index": 0, "nic_index": 0},
+        {"id": "gpu:3", "model": "A100", "cpu_index": 0, "nic_index": 0}
+      ]
+    }
+  ],
+  "ranks": [
+    {"rank": 0, "machine_id": "node0", "gpu_index": 0},
+    {"rank": 1, "machine_id": "node0", "gpu_index": 1},
+    {"rank": 2, "machine_id": "node0", "gpu_index": 2},
+    {"rank": 3, "machine_id": "node0", "gpu_index": 3}
+  ],
+  "hardware_params": {
+    "peak_fp16_tflops": 312.0,
+    "peak_fp32_tflops": 19.5,
+    "memory_bandwidth_gbps": 2000.0,
+    "nvlink_bandwidth_gbps": 600.0,
+    "nvlink_latency_us": 1.0,
+    "network_bandwidth_gbps": 200.0,
+    "network_latency_us": 5.0
+  }
+}

@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+PYTHON_BIN="${PYTHON_BIN:-python3}"
+MODE="${1:-run}"
+
+[[ $# -le 1 ]] || { echo "usage: script/run_e5 [run|audit|verify|paper|paper-self-test|paper-verify]" >&2; exit 2; }
+if [[ "$PYTHON_BIN" != */* ]]; then
+    PYTHON_BIN="$(command -v "$PYTHON_BIN" || true)"
+fi
+[[ -n "$PYTHON_BIN" ]] || { echo "run_e5: Python is unavailable" >&2; exit 2; }
+PYTHON_BIN="$(realpath -e "$PYTHON_BIN")"
+
+(cd "$ROOT" && sha256sum --quiet -c script/e5/CHECKSUMS.sha256)
+
+case "$MODE" in
+    run)
+        "$PYTHON_BIN" "$ROOT/script/e5/verify_table8.py" --require-paper-values
+        PYTHON_BIN="$PYTHON_BIN" "$ROOT/script/e5/reproduce_table8.sh" \
+            "${E5_RESULT_ROOT:-$ROOT/result/e5/generated}"
+        ;;
+    audit)
+        "$PYTHON_BIN" "$ROOT/script/e5/verify_table8.py" --require-paper-values
+        ;;
+    verify)
+        "$PYTHON_BIN" "$ROOT/script/e5/verify_table8.py" \
+            --input "${E5_RESULT_ROOT:-$ROOT/result/e5/generated}/memory_scaling.json"
+        ;;
+    paper)
+        PYTHON_BIN="$PYTHON_BIN" exec "$ROOT/script/e5/run_paper_aligned.sh" run
+        ;;
+    paper-self-test)
+        PYTHON_BIN="$PYTHON_BIN" exec "$ROOT/script/e5/run_paper_aligned.sh" self-test
+        ;;
+    paper-verify)
+        PYTHON_BIN="$PYTHON_BIN" exec "$ROOT/script/e5/run_paper_aligned.sh" verify
+        ;;
+    -h|--help)
+        echo "usage: script/run_e5 [run|audit|verify|paper|paper-self-test|paper-verify]"
+        ;;
+    *)
+        echo "usage: script/run_e5 [run|audit|verify|paper|paper-self-test|paper-verify]" >&2
+        exit 2
+        ;;
+esac

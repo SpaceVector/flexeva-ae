@@ -1,0 +1,293 @@
+#!/bin/bash
+# export FAKECUDA_LOG_LEVEL=4 #全局日志控制
+# export CUDART_LOG_LEVEL=4
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DEFAULT_PROOT_BIN="$SCRIPT_DIR/../../../.deps/proot-5.3.1/bin/proot"
+PROOT_BIN="${FAKECUDA_PROOT_BIN:-$DEFAULT_PROOT_BIN}"
+
+FAKE_CUDART="$SCRIPT_DIR/build/liboutput/libcudart.so.12"
+FAKE_CUDA="$SCRIPT_DIR/build/liboutput/libcuda.so.1"
+FAKE_NVML="$SCRIPT_DIR/build/liboutput/libnvidia-ml.so"
+FAKE_CUBLAS="$SCRIPT_DIR/build/liboutput/libcublas.so.12"
+FAKE_CUBLASLT="$SCRIPT_DIR/build/liboutput/libcublasLt.so.12"
+FAKE_NCCL="$SCRIPT_DIR/build/liboutput/libnccl.so.2"
+
+find_first_existing() {
+    local candidate
+    for candidate in "$@"; do
+        if [ -n "$candidate" ] && [ -e "$candidate" ]; then
+            printf '%s\n' "$candidate"
+            return 0
+        fi
+    done
+    return 1
+}
+
+find_first_glob() {
+    local pattern
+    local matches=()
+    for pattern in "$@"; do
+        matches=($pattern)
+        if [ "${#matches[@]}" -gt 0 ] && [ -e "${matches[0]}" ]; then
+            printf '%s\n' "${matches[0]}"
+            return 0
+        fi
+    done
+    return 1
+}
+
+collect_ldconfig_paths() {
+    local soname="$1"
+    if [ "${FAKECUDA_SKIP_LDCONFIG:-0}" = "1" ]; then
+        return 0
+    fi
+    if ! command -v ldconfig >/dev/null 2>&1; then
+        return 0
+    fi
+    ldconfig -p 2>/dev/null | awk -v lib="$soname" '$1 == lib { print $NF }'
+}
+
+resolve_existing_path() {
+    local candidate="$1"
+    if [ -n "$candidate" ] && [ -e "$candidate" ]; then
+        readlink -f "$candidate" 2>/dev/null || true
+    fi
+}
+
+declare -a PROOT_BIND_ARGS=()
+declare -a PROOT_BOUND_TARGETS=()
+
+has_bound_target() {
+    local candidate="$1"
+    local existing
+    for existing in "${PROOT_BOUND_TARGETS[@]:-}"; do
+        if [ "$existing" = "$candidate" ]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+add_bind_target() {
+    local source_path="$1"
+    local target_path="$2"
+    if [ -z "$target_path" ] || [ ! -e "$target_path" ]; then
+        return 0
+    fi
+    if has_bound_target "$target_path"; then
+        return 0
+    fi
+    PROOT_BIND_ARGS+=(-b "$source_path:$target_path")
+    PROOT_BOUND_TARGETS+=("$target_path")
+}
+
+add_bind_targets() {
+    local source_path="$1"
+    shift
+    local target_path
+    for target_path in "$@"; do
+        add_bind_target "$source_path" "$target_path"
+    done
+}
+
+detect_site_packages_root() {
+    local env_root="$1"
+    local py_bin="$env_root/bin/python"
+    local py_ver=""
+    if [ ! -x "$py_bin" ]; then
+        return 1
+    fi
+    py_ver="$("$py_bin" -S -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null || true)"
+    if [ -z "$py_ver" ]; then
+        return 1
+    fi
+    if [ -d "$env_root/lib/python$py_ver/site-packages" ]; then
+        printf '%s\n' "$env_root/lib/python$py_ver/site-packages"
+        return 0
+    fi
+    return 1
+}
+
+detect_env_root() {
+    if [ -n "${FAKECUDA_TARGET_ENV_ROOT:-}" ]; then
+        printf '%s\n' "$FAKECUDA_TARGET_ENV_ROOT"
+        return 0
+    fi
+    if [ -n "${CONDA_PREFIX:-}" ]; then
+        printf '%s\n' "$CONDA_PREFIX"
+        return 0
+    fi
+    if [ "$#" -gt 0 ]; then
+        case "$1" in
+            */bin/python|*/bin/python3|*/bin/python3.*)
+                cd "$(dirname "$1")/.." && pwd
+                return 0
+                ;;
+        esac
+    fi
+    return 1
+}
+
+prepend_path() {
+    local new_entry="$1"
+    local current="${2:-}"
+    if [ -z "$new_entry" ]; then
+        printf '%s\n' "$current"
+        return 0
+    fi
+    if [ -z "$current" ]; then
+        printf '%s\n' "$new_entry"
+        return 0
+    fi
+    printf '%s:%s\n' "$new_entry" "$current"
+}
+
+if [ "$#" -eq 0 ]; then
+    echo "用法: $0 <你要运行的命令>"
+    echo "示例: $0 python train.py"
+    echo "示例: $0 python -c 'import torch; print(torch.cuda.is_available())'"
+    exit 1
+fi
+
+if [ ! -x "$PROOT_BIN" ]; then
+    echo "错误: 找不到可执行的 PRoot，请先在 Artifact 根目录运行 make setup-proot"
+    exit 1
+fi
+if [ ! -f "$FAKE_CUDA" ]; then
+    echo "错误: 找不到伪造库"
+    exit 1
+fi
+if [ -n "${LD_PRELOAD:-}" ]; then
+    echo "错误: 使用 fake-cuda 时禁止设置 LD_PRELOAD"
+    echo "请只使用 frun/proot 进行库替换，不要混用 LD_PRELOAD"
+    exit 1
+fi
+
+ENV_ROOT="$(detect_env_root "$1" || true)"
+if [ -z "$ENV_ROOT" ]; then
+    echo "错误: 无法推断当前 PyTorch/conda 环境根目录"
+    echo "请先激活目标 conda env，或设置 FAKECUDA_TARGET_ENV_ROOT"
+    exit 1
+fi
+SITE_PACKAGES_ROOT="${FAKECUDA_SITE_PACKAGES_ROOT:-$(detect_site_packages_root "$ENV_ROOT" || true)}"
+
+TARGET_CUDART="${TARGET_CUDART:-$(find_first_existing "${SITE_PACKAGES_ROOT:+$SITE_PACKAGES_ROOT/nvidia/cuda_runtime/lib/libcudart.so.12}" || true)}"
+if [ -z "$TARGET_CUDART" ]; then
+    TARGET_CUDART="$(find_first_glob "$ENV_ROOT"/lib/python*/site-packages/nvidia/cuda_runtime/lib/libcudart.so.12 || true)"
+fi
+TARGET_CUDART_SYS="${TARGET_CUDART_SYS:-/usr/local/cuda-12.8/lib64/libcudart.so.12}"
+TARGET_CUDA="${TARGET_CUDA:-$(find_first_existing /lib/x86_64-linux-gnu/libcuda.so.1 /usr/lib/x86_64-linux-gnu/libcuda.so.1 /lib64/libcuda.so.1 || true)}"
+TARGET_NVML="${TARGET_NVML:-$(find_first_existing /lib/x86_64-linux-gnu/libnvidia-ml.so.1 /usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1 || true)}"
+TARGET_CUBLAS="${TARGET_CUBLAS:-$(find_first_existing "${SITE_PACKAGES_ROOT:+$SITE_PACKAGES_ROOT/nvidia/cublas/lib/libcublas.so.12}" || true)}"
+if [ -z "$TARGET_CUBLAS" ]; then
+    TARGET_CUBLAS="$(find_first_glob "$ENV_ROOT"/lib/python*/site-packages/nvidia/cublas/lib/libcublas.so.12 || true)"
+fi
+TARGET_CUBLASLT="${TARGET_CUBLASLT:-$(find_first_existing "${SITE_PACKAGES_ROOT:+$SITE_PACKAGES_ROOT/nvidia/cublas/lib/libcublasLt.so.12}" || true)}"
+if [ -z "$TARGET_CUBLASLT" ]; then
+    TARGET_CUBLASLT="$(find_first_glob "$ENV_ROOT"/lib/python*/site-packages/nvidia/cublas/lib/libcublasLt.so.12 || true)"
+fi
+TARGET_NCCL="${TARGET_NCCL:-$(find_first_existing "${SITE_PACKAGES_ROOT:+$SITE_PACKAGES_ROOT/nvidia/nccl/lib/libnccl.so.2}" || true)}"
+if [ -z "$TARGET_NCCL" ]; then
+    TARGET_NCCL="$(find_first_glob "$ENV_ROOT"/lib/python*/site-packages/nvidia/nccl/lib/libnccl.so.2 || true)"
+fi
+
+for target in \
+    "$TARGET_CUDART" \
+    "$TARGET_CUBLAS" \
+    "$TARGET_CUBLASLT" \
+    "$TARGET_NCCL"
+do
+    if [ ! -e "$target" ]; then
+        echo "错误: 找不到目标运行库: $target"
+        echo "当前环境根目录: $ENV_ROOT"
+        exit 1
+    fi
+done
+
+if [ -z "$TARGET_CUDA" ]; then
+    echo "警告: 未找到真实 libcuda.so.1，继续使用 fake-cuda CPU-only 映射路径"
+    TARGET_CUDA="/lib/x86_64-linux-gnu/libcuda.so.1"
+fi
+
+if [ -z "$TARGET_NVML" ]; then
+    echo "警告: 未找到真实 libnvidia-ml.so.1，继续使用 fake-cuda CPU-only 映射路径"
+    TARGET_NVML="/lib/x86_64-linux-gnu/libnvidia-ml.so.1"
+fi
+
+PROOT_EXTRA_LIB_DIR="$(find_first_existing \
+    "$SCRIPT_DIR/third_party/proot-runtime/usr/lib/x86_64-linux-gnu" \
+    "$SCRIPT_DIR/third_party/proot-runtime/lib/x86_64-linux-gnu" \
+    "${FAKECUDA_PROOT_EXTRA_LIB_DIR:-}" || true)"
+FAKE_LIB_DIR="$SCRIPT_DIR/build/liboutput"
+PROOT_LD_LIBRARY_PATH="$(prepend_path "$FAKE_LIB_DIR" "${LD_LIBRARY_PATH:-}")"
+PROOT_LD_LIBRARY_PATH="$(prepend_path "$PROOT_EXTRA_LIB_DIR" "$PROOT_LD_LIBRARY_PATH")"
+
+TARGET_CUDART_REAL="$(resolve_existing_path "$TARGET_CUDART")"
+TARGET_CUDART_SYS_REAL="$(resolve_existing_path "$TARGET_CUDART_SYS")"
+TARGET_CUDA_REAL="$(resolve_existing_path "$TARGET_CUDA")"
+TARGET_NVML_REAL="$(resolve_existing_path "$TARGET_NVML")"
+TARGET_CUBLAS_REAL="$(resolve_existing_path "$TARGET_CUBLAS")"
+TARGET_CUBLASLT_REAL="$(resolve_existing_path "$TARGET_CUBLASLT")"
+TARGET_NCCL_REAL="$(resolve_existing_path "$TARGET_NCCL")"
+
+mapfile -t LDCONFIG_CUDART_SO12 < <(collect_ldconfig_paths libcudart.so.12)
+mapfile -t LDCONFIG_CUDART_SO < <(collect_ldconfig_paths libcudart.so)
+mapfile -t LDCONFIG_CUDA_SO1 < <(collect_ldconfig_paths libcuda.so.1)
+mapfile -t LDCONFIG_CUDA_SO < <(collect_ldconfig_paths libcuda.so)
+mapfile -t LDCONFIG_NVML_SO1 < <(collect_ldconfig_paths libnvidia-ml.so.1)
+
+add_bind_targets "$FAKE_CUDART" \
+    "$TARGET_CUDART" \
+    "$TARGET_CUDART_REAL" \
+    "$TARGET_CUDART_SYS" \
+    "$TARGET_CUDART_SYS_REAL" \
+    /usr/local/cuda/targets/x86_64-linux/lib/libcudart.so.12 \
+    /lib/libcudart.so \
+    "${LDCONFIG_CUDART_SO12[@]}" \
+    "${LDCONFIG_CUDART_SO[@]}"
+
+add_bind_targets "$FAKE_CUDA" \
+    "$TARGET_CUDA" \
+    "$TARGET_CUDA_REAL" \
+    /usr/lib/x86_64-linux-gnu/libcuda.so.1 \
+    /usr/lib/x86_64-linux-gnu/libcuda.so \
+    /usr/local/cuda-12.8/compat/libcuda.so.1 \
+    /usr/local/cuda-12.8/compat/libcuda.so \
+    /usr/local/cuda/compat/libcuda.so.1 \
+    /usr/local/cuda/compat/libcuda.so \
+    "${LDCONFIG_CUDA_SO1[@]}" \
+    "${LDCONFIG_CUDA_SO[@]}"
+
+add_bind_targets "$FAKE_NVML" \
+    "$TARGET_NVML" \
+    "$TARGET_NVML_REAL" \
+    /usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1 \
+    "${LDCONFIG_NVML_SO1[@]}"
+
+add_bind_targets "$FAKE_CUBLAS" \
+    "$TARGET_CUBLAS" \
+    "$TARGET_CUBLAS_REAL"
+
+add_bind_targets "$FAKE_CUBLASLT" \
+    "$TARGET_CUBLASLT" \
+    "$TARGET_CUBLASLT_REAL"
+
+add_bind_targets "$FAKE_NCCL" \
+    "$TARGET_NCCL" \
+    "$TARGET_NCCL_REAL"
+
+if [ "${FAKECUDA_FRUN_QUIET:-0}" != "1" ]; then
+    echo "=== 启动 Proot 虚拟环境 ==="
+    echo "正在建立文件映射..."
+    echo "目标环境根目录: $ENV_ROOT"
+fi
+
+PROOT_TMP_DIR_VALUE="${PROOT_TMP_DIR:-${TMPDIR:-$SCRIPT_DIR/../../../.deps/tmp}}"
+mkdir -p "$PROOT_TMP_DIR_VALUE"
+env LD_LIBRARY_PATH="$PROOT_LD_LIBRARY_PATH" PROOT_TMP_DIR="$PROOT_TMP_DIR_VALUE" \
+    "$PROOT_BIN" \
+    "${PROOT_BIND_ARGS[@]}" \
+    "$@"

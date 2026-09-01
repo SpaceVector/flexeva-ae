@@ -1,0 +1,535 @@
+{
+  "api_set": "nccl",
+  "apis": [
+    {
+      "event_kind": "Unknown",
+      "name": "ncclAllGather",
+      "parameters": [
+        {
+          "declaration": "const void * sendbuff",
+          "name": "sendbuff",
+          "type": "const void *"
+        },
+        {
+          "declaration": "void * recvbuff",
+          "name": "recvbuff",
+          "type": "void *"
+        },
+        {
+          "declaration": "size_t sendcount",
+          "name": "sendcount",
+          "type": "size_t"
+        },
+        {
+          "declaration": "ncclDataType_t datatype",
+          "name": "datatype",
+          "type": "ncclDataType_t"
+        },
+        {
+          "declaration": "ncclComm_t comm",
+          "name": "comm",
+          "type": "ncclComm_t"
+        },
+        {
+          "declaration": "cudaStream_t stream",
+          "name": "stream",
+          "type": "cudaStream_t"
+        }
+      ],
+      "return_type": "ncclResult_t"
+    },
+    {
+      "event_kind": "Unknown",
+      "name": "ncclAllReduce",
+      "parameters": [
+        {
+          "declaration": "const void * sendbuff",
+          "name": "sendbuff",
+          "type": "const void *"
+        },
+        {
+          "declaration": "void * recvbuff",
+          "name": "recvbuff",
+          "type": "void *"
+        },
+        {
+          "declaration": "size_t count",
+          "name": "count",
+          "type": "size_t"
+        },
+        {
+          "declaration": "ncclDataType_t datatype",
+          "name": "datatype",
+          "type": "ncclDataType_t"
+        },
+        {
+          "declaration": "ncclRedOp_t op",
+          "name": "op",
+          "type": "ncclRedOp_t"
+        },
+        {
+          "declaration": "ncclComm_t comm",
+          "name": "comm",
+          "type": "ncclComm_t"
+        },
+        {
+          "declaration": "cudaStream_t stream",
+          "name": "stream",
+          "type": "cudaStream_t"
+        }
+      ],
+      "return_type": "ncclResult_t"
+    },
+    {
+      "event_kind": "Unknown",
+      "name": "ncclBroadcast",
+      "parameters": [
+        {
+          "declaration": "const void * sendbuff",
+          "name": "sendbuff",
+          "type": "const void *"
+        },
+        {
+          "declaration": "void * recvbuff",
+          "name": "recvbuff",
+          "type": "void *"
+        },
+        {
+          "declaration": "size_t count",
+          "name": "count",
+          "type": "size_t"
+        },
+        {
+          "declaration": "ncclDataType_t datatype",
+          "name": "datatype",
+          "type": "ncclDataType_t"
+        },
+        {
+          "declaration": "int root",
+          "name": "root",
+          "type": "int"
+        },
+        {
+          "declaration": "ncclComm_t comm",
+          "name": "comm",
+          "type": "ncclComm_t"
+        },
+        {
+          "declaration": "cudaStream_t stream",
+          "name": "stream",
+          "type": "cudaStream_t"
+        }
+      ],
+      "return_type": "ncclResult_t"
+    },
+    {
+      "event_kind": "Unknown",
+      "name": "ncclCommAbort",
+      "parameters": [
+        {
+          "declaration": "ncclComm_t comm",
+          "name": "comm",
+          "type": "ncclComm_t"
+        }
+      ],
+      "return_type": "ncclResult_t"
+    },
+    {
+      "event_kind": "Unknown",
+      "name": "ncclCommCount",
+      "parameters": [
+        {
+          "declaration": "const ncclComm_t comm",
+          "name": "comm",
+          "type": "const ncclComm_t"
+        },
+        {
+          "declaration": "int * count",
+          "name": "count",
+          "type": "int *"
+        }
+      ],
+      "return_type": "ncclResult_t"
+    },
+    {
+      "event_kind": "Unknown",
+      "name": "ncclCommCuDevice",
+      "parameters": [
+        {
+          "declaration": "const ncclComm_t comm",
+          "name": "comm",
+          "type": "const ncclComm_t"
+        },
+        {
+          "declaration": "int * device",
+          "name": "device",
+          "type": "int *"
+        }
+      ],
+      "return_type": "ncclResult_t"
+    },
+    {
+      "event_kind": "Unknown",
+      "name": "ncclCommDestroy",
+      "parameters": [
+        {
+          "declaration": "ncclComm_t comm",
+          "name": "comm",
+          "type": "ncclComm_t"
+        }
+      ],
+      "return_type": "ncclResult_t"
+    },
+    {
+      "event_kind": "Unknown",
+      "name": "ncclCommGetAsyncError",
+      "parameters": [
+        {
+          "declaration": "ncclComm_t comm",
+          "name": "comm",
+          "type": "ncclComm_t"
+        },
+        {
+          "declaration": "ncclResult_t * asyncError",
+          "name": "asyncError",
+          "type": "ncclResult_t *"
+        }
+      ],
+      "return_type": "ncclResult_t"
+    },
+    {
+      "event_kind": "Unknown",
+      "name": "ncclCommInitAll",
+      "parameters": [
+        {
+          "declaration": "ncclComm_t * comms",
+          "name": "comms",
+          "type": "ncclComm_t *"
+        },
+        {
+          "declaration": "int ndev",
+          "name": "ndev",
+          "type": "int"
+        },
+        {
+          "declaration": "const int * devlist",
+          "name": "devlist",
+          "type": "const int *"
+        }
+      ],
+      "return_type": "ncclResult_t"
+    },
+    {
+      "event_kind": "Unknown",
+      "name": "ncclCommInitRank",
+      "parameters": [
+        {
+          "declaration": "ncclComm_t * comm",
+          "name": "comm",
+          "type": "ncclComm_t *"
+        },
+        {
+          "declaration": "int nranks",
+          "name": "nranks",
+          "type": "int"
+        },
+        {
+          "declaration": "ncclUniqueId commId",
+          "name": "commId",
+          "type": "ncclUniqueId"
+        },
+        {
+          "declaration": "int rank",
+          "name": "rank",
+          "type": "int"
+        }
+      ],
+      "return_type": "ncclResult_t"
+    },
+    {
+      "event_kind": "Unknown",
+      "name": "ncclCommInitRankConfig",
+      "parameters": [
+        {
+          "declaration": "ncclComm_t * comm",
+          "name": "comm",
+          "type": "ncclComm_t *"
+        },
+        {
+          "declaration": "int nranks",
+          "name": "nranks",
+          "type": "int"
+        },
+        {
+          "declaration": "ncclUniqueId commId",
+          "name": "commId",
+          "type": "ncclUniqueId"
+        },
+        {
+          "declaration": "int rank",
+          "name": "rank",
+          "type": "int"
+        },
+        {
+          "declaration": "ncclConfig_t * config",
+          "name": "config",
+          "type": "ncclConfig_t *"
+        }
+      ],
+      "return_type": "ncclResult_t"
+    },
+    {
+      "event_kind": "Unknown",
+      "name": "ncclCommSplit",
+      "parameters": [
+        {
+          "declaration": "ncclComm_t comm",
+          "name": "comm",
+          "type": "ncclComm_t"
+        },
+        {
+          "declaration": "int color",
+          "name": "color",
+          "type": "int"
+        },
+        {
+          "declaration": "int key",
+          "name": "key",
+          "type": "int"
+        },
+        {
+          "declaration": "ncclComm_t * newcomm",
+          "name": "newcomm",
+          "type": "ncclComm_t *"
+        },
+        {
+          "declaration": "ncclConfig_t * config",
+          "name": "config",
+          "type": "ncclConfig_t *"
+        }
+      ],
+      "return_type": "ncclResult_t"
+    },
+    {
+      "event_kind": "Unknown",
+      "name": "ncclCommUserRank",
+      "parameters": [
+        {
+          "declaration": "const ncclComm_t comm",
+          "name": "comm",
+          "type": "const ncclComm_t"
+        },
+        {
+          "declaration": "int * rank",
+          "name": "rank",
+          "type": "int *"
+        }
+      ],
+      "return_type": "ncclResult_t"
+    },
+    {
+      "event_kind": "Unknown",
+      "name": "ncclGetUniqueId",
+      "parameters": [
+        {
+          "declaration": "ncclUniqueId * uniqueId",
+          "name": "uniqueId",
+          "type": "ncclUniqueId *"
+        }
+      ],
+      "return_type": "ncclResult_t"
+    },
+    {
+      "event_kind": "Unknown",
+      "name": "ncclGetVersion",
+      "parameters": [
+        {
+          "declaration": "int * version",
+          "name": "version",
+          "type": "int *"
+        }
+      ],
+      "return_type": "ncclResult_t"
+    },
+    {
+      "event_kind": "Unknown",
+      "name": "ncclGroupEnd",
+      "parameters": [],
+      "return_type": "ncclResult_t"
+    },
+    {
+      "event_kind": "Unknown",
+      "name": "ncclGroupStart",
+      "parameters": [],
+      "return_type": "ncclResult_t"
+    },
+    {
+      "event_kind": "Unknown",
+      "name": "ncclRecv",
+      "parameters": [
+        {
+          "declaration": "void * recvbuff",
+          "name": "recvbuff",
+          "type": "void *"
+        },
+        {
+          "declaration": "size_t count",
+          "name": "count",
+          "type": "size_t"
+        },
+        {
+          "declaration": "ncclDataType_t datatype",
+          "name": "datatype",
+          "type": "ncclDataType_t"
+        },
+        {
+          "declaration": "int peer",
+          "name": "peer",
+          "type": "int"
+        },
+        {
+          "declaration": "ncclComm_t comm",
+          "name": "comm",
+          "type": "ncclComm_t"
+        },
+        {
+          "declaration": "cudaStream_t stream",
+          "name": "stream",
+          "type": "cudaStream_t"
+        }
+      ],
+      "return_type": "ncclResult_t"
+    },
+    {
+      "event_kind": "Unknown",
+      "name": "ncclReduce",
+      "parameters": [
+        {
+          "declaration": "const void * sendbuff",
+          "name": "sendbuff",
+          "type": "const void *"
+        },
+        {
+          "declaration": "void * recvbuff",
+          "name": "recvbuff",
+          "type": "void *"
+        },
+        {
+          "declaration": "size_t count",
+          "name": "count",
+          "type": "size_t"
+        },
+        {
+          "declaration": "ncclDataType_t datatype",
+          "name": "datatype",
+          "type": "ncclDataType_t"
+        },
+        {
+          "declaration": "ncclRedOp_t op",
+          "name": "op",
+          "type": "ncclRedOp_t"
+        },
+        {
+          "declaration": "int root",
+          "name": "root",
+          "type": "int"
+        },
+        {
+          "declaration": "ncclComm_t comm",
+          "name": "comm",
+          "type": "ncclComm_t"
+        },
+        {
+          "declaration": "cudaStream_t stream",
+          "name": "stream",
+          "type": "cudaStream_t"
+        }
+      ],
+      "return_type": "ncclResult_t"
+    },
+    {
+      "event_kind": "Unknown",
+      "name": "ncclReduceScatter",
+      "parameters": [
+        {
+          "declaration": "const void * sendbuff",
+          "name": "sendbuff",
+          "type": "const void *"
+        },
+        {
+          "declaration": "void * recvbuff",
+          "name": "recvbuff",
+          "type": "void *"
+        },
+        {
+          "declaration": "size_t recvcount",
+          "name": "recvcount",
+          "type": "size_t"
+        },
+        {
+          "declaration": "ncclDataType_t datatype",
+          "name": "datatype",
+          "type": "ncclDataType_t"
+        },
+        {
+          "declaration": "ncclRedOp_t op",
+          "name": "op",
+          "type": "ncclRedOp_t"
+        },
+        {
+          "declaration": "ncclComm_t comm",
+          "name": "comm",
+          "type": "ncclComm_t"
+        },
+        {
+          "declaration": "cudaStream_t stream",
+          "name": "stream",
+          "type": "cudaStream_t"
+        }
+      ],
+      "return_type": "ncclResult_t"
+    },
+    {
+      "event_kind": "Unknown",
+      "name": "ncclSend",
+      "parameters": [
+        {
+          "declaration": "const void * sendbuff",
+          "name": "sendbuff",
+          "type": "const void *"
+        },
+        {
+          "declaration": "size_t count",
+          "name": "count",
+          "type": "size_t"
+        },
+        {
+          "declaration": "ncclDataType_t datatype",
+          "name": "datatype",
+          "type": "ncclDataType_t"
+        },
+        {
+          "declaration": "int peer",
+          "name": "peer",
+          "type": "int"
+        },
+        {
+          "declaration": "ncclComm_t comm",
+          "name": "comm",
+          "type": "ncclComm_t"
+        },
+        {
+          "declaration": "cudaStream_t stream",
+          "name": "stream",
+          "type": "cudaStream_t"
+        }
+      ],
+      "return_type": "ncclResult_t"
+    }
+  ],
+  "includes": [
+    "\"lowlevel/interface/wrapper_template.hpp\"",
+    "\"cuda_stubs/nccl.h\""
+  ],
+  "output": "generated/nccl_wrappers.cpp"
+}

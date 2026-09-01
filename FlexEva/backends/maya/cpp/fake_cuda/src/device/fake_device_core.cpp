@@ -1,0 +1,64 @@
+#include "fake_device_core.h"
+#include "device_manager.hpp"
+#include "fake_types.h"
+
+DeviceManager& GPU_Devices = DeviceManager::getInstance();
+
+extern "C" {
+    bool fake_isInitialized(){
+        return GPU_Devices.isInitialized();
+    }
+    int fake_getDriverVersion(){
+        return GPU_Devices.getDriverVersion();
+    }
+    int fake_getDeviceCount(){
+        return GPU_Devices.getDeviceCount();
+    }
+    std::string fake_getDeviceName(int device_id){
+        return GPU_Devices.getDeviceName(device_id);
+    }
+    size_t fake_getDeviceTotalMem(int device_id){
+        return GPU_Devices.getDeviceTotalMem(device_id);
+    }
+    size_t fake_getDeviceFreeMem(int device_id){
+        return GPU_Devices.getDeviceFreeMem(device_id);
+    }
+    int fake_getDevProps(CUdevice_attribute attrib, int dev){
+        return GPU_Devices.getDevProps(attrib, dev);
+    }
+    bool fake_initialize(){
+        return GPU_Devices.initialize();
+    }
+    cudaUUID_t fake_getDeviceUUID(int dev){
+        return GPU_Devices.getDeviceUUID(dev);
+    }
+    void fake_setDevice(int device_id){
+        GPU_Devices.setDevice(device_id);
+    }
+    void fake_getDevice(int* device_id){
+        GPU_Devices.getDevice(device_id);
+    }
+    cudaError_t fake_getLastError(){
+        return GPU_Devices.getLastError();
+    }
+    void fake_setLastError(cudaError_t error){
+        GPU_Devices.setLastError(error);
+    }
+    CUcontext fake_getCurrentContext(){
+        return GPU_Devices.getCurrentContext();
+    }
+    CUcontext fake_getContextForDevice(int dev_id){
+        return GPU_Devices.getContextForDevice(dev_id);
+    }
+
+
+    cudaError_t fake_allocateMemory(void** devPtr, size_t size){
+        if(!fake_isInitialized()){
+            fake_initialize();
+        }
+        return GPU_Devices.allocateMemory(devPtr, size);
+    }
+    cudaError_t fake_freeMemory(void* devPtr){
+        return GPU_Devices.freeMemory(devPtr);
+    }
+}

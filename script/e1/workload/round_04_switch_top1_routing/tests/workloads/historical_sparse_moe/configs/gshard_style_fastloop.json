@@ -1,0 +1,60 @@
+{
+  "target_id": "historical_gshard_style_fastloop",
+  "model": {
+    "vocab_size": 50304,
+    "sequence_length": 2048,
+    "num_layers": 24,
+    "hidden_size": 1024,
+    "num_attention_heads": 16,
+    "ffw_multiplier": 4,
+    "dropout": 0.0,
+    "moe_every_other_ffn": true,
+    "num_experts": 128,
+    "top_k": 1,
+    "router_aux_loss_coef": 0.01,
+    "capacity_factor_train": 1.25,
+    "capacity_factor_eval": 2.0,
+    "min_capacity": 4,
+    "drop_tokens": true,
+    "init_std": 0.014,
+    "historical_reference": "switch_style_top1_packed_dispatch"
+  },
+  "optimization": {
+    "micro_batch_size_per_gpu": 1,
+    "global_batch_size": 16,
+    "train_iters": 10,
+    "learning_rate": 1.2e-4,
+    "min_learning_rate": 1.0e-6,
+    "lr_decay_style": "cosine",
+    "lr_warmup_tokens": 375000000,
+    "lr_decay_tokens": 300000000000,
+    "train_tokens": 300000000000,
+    "adam_beta1": 0.9,
+    "adam_beta2": 0.95,
+    "weight_decay": 0.1,
+    "clip_grad": 1.0,
+    "fp16": true,
+    "activation_checkpoint": false,
+    "log_interval": 1,
+    "eval_interval": 100,
+    "eval_iters": 10,
+    "save_interval": 10000
+  },
+  "data": {
+    "seed": 1234,
+    "split": "98,2,0",
+    "vocab_file": "<synthetic>",
+    "merge_file": "<synthetic>",
+    "dataset_note": "Fixed-seed synthetic token stream for historically grounded sparse-MoE experiments"
+  },
+  "runtime": {
+    "nodes": 16,
+    "gpus_per_node": 8,
+    "tensor_parallel_size": 1,
+    "pipeline_parallel_size": 1,
+    "expert_parallel_size": 128,
+    "master_addr": "127.0.0.1",
+    "master_port": 29500,
+    "distributed_backend": "nccl"
+  }
+}

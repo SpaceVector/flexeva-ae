@@ -1,0 +1,34 @@
+extern "C" {{RETURN_TYPE}} {{API_NAME}}({{PARAM_SIGNATURE}}) {
+  using FnPtr = {{RETURN_TYPE}} (*)( {{PARAM_TYPES}} );
+  auto *impl = reinterpret_cast<FnPtr>(
+      resolve_backend_local("{{API_NAME}}"));
+  if (impl == nullptr) {
+    // In practice, generator should emit richer diagnostics or fallback logic.
+    // Throwing ensures we fail fast when the backend cannot be resolved.
+    throw std::runtime_error("failed to resolve backend for {{API_NAME}}");
+  }
+
+  auto forward_call = [&](auto &&...forward_args) -> {{RETURN_TYPE}} {
+    return impl(std::forward<decltype(forward_args)>(forward_args)...);
+  };
+
+  {{PRE_PAYLOAD_BUILD}}
+
+  // Avoid infinite interposition loops when the backend library re-enters
+  // the same exported symbol through its own PLT.
+  static thread_local bool in_wrapper = false;
+  if (in_wrapper) {
+    return forward_call({{PARAM_NAMES}});
+  }
+
+  struct ReentryGuard final {
+    bool &flag;
+    explicit ReentryGuard(bool &flag_ref) : flag(flag_ref) { flag = true; }
+    ~ReentryGuard() { flag = false; }
+  } guard(in_wrapper);
+
+  if (std::getenv("FLEXSIM_LLI_DEBUG") != nullptr) {
+    std::clog << "[lli-wrapper] {{API_NAME}} invoked" << std::endl;
+  }
+  {{CALL_AND_RECORD}}
+}

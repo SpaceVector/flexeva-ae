@@ -1,0 +1,356 @@
+{
+  "playbook_id": "moe_workload_family_v2_playbook",
+  "family_id": "moe_workload_family_v2",
+  "target_cluster": {
+    "gpus": 128,
+    "node_shape": "paper target",
+    "note": "This playbook is designed for the 128-GPU paper setting, not only the tempcloud prototype."
+  },
+  "operator_library": [
+    {
+      "operator_id": "overflow_reroute",
+      "goal_ids": ["straggler_load_skew"],
+      "status": "implemented_seed",
+      "source_family": "Switch-like overflow handling",
+      "backed_by_candidate_id": "overflow_reroute",
+      "summary": "Reroute overflow instead of dropping."
+    },
+    {
+      "operator_id": "local_backup_reroute",
+      "goal_ids": ["straggler_load_skew", "topology_locality"],
+      "status": "implemented_seed",
+      "source_family": "local spill / backup routing",
+      "backed_by_candidate_id": "local_backup_reroute",
+      "summary": "Spill overflow to local experts before global fallback."
+    },
+    {
+      "operator_id": "balanced_secondary_route",
+      "goal_ids": ["straggler_load_skew"],
+      "status": "implemented_seed",
+      "source_family": "secondary-choice balancing",
+      "backed_by_candidate_id": "balanced_secondary_route",
+      "summary": "Prefer the second selected expert when the primary is already hotter."
+    },
+    {
+      "operator_id": "layout_striped",
+      "goal_ids": ["straggler_load_skew", "topology_locality"],
+      "status": "implemented_seed",
+      "source_family": "expert layout / placement",
+      "backed_by_candidate_id": "layout_striped",
+      "summary": "Change expert ownership layout from contiguous to striped."
+    },
+    {
+      "operator_id": "hot_expert_relayout",
+      "goal_ids": ["straggler_load_skew", "topology_locality"],
+      "status": "planned_128g",
+      "source_family": "Tutel / mFabric-style expert relayout",
+      "backed_by_candidate_id": null,
+      "summary": "Move hot experts across nodes/NIC domains to reduce skew and remote hot spots."
+    },
+    {
+      "operator_id": "hot_expert_replication",
+      "goal_ids": ["straggler_load_skew", "topology_locality"],
+      "status": "planned_128g",
+      "source_family": "hot expert replication",
+      "backed_by_candidate_id": null,
+      "summary": "Replicate selected hot experts to reduce long-tail service time."
+    },
+    {
+      "operator_id": "per_node_balance_constraint",
+      "goal_ids": ["straggler_load_skew"],
+      "status": "planned_128g",
+      "source_family": "node-aware balancing constraint",
+      "backed_by_candidate_id": null,
+      "summary": "Add per-node balancing constraints to routing or dispatch."
+    },
+    {
+      "operator_id": "locality_first_dispatch",
+      "goal_ids": ["communication_critical_path", "topology_locality"],
+      "status": "implemented_seed",
+      "source_family": "dispatch ordering / packing",
+      "backed_by_candidate_id": "locality_first_dispatch",
+      "summary": "Pack send buffers by routing density."
+    },
+    {
+      "operator_id": "staged_priority_dispatch",
+      "goal_ids": ["communication_critical_path"],
+      "status": "implemented_seed",
+      "source_family": "staged A2A scheduling",
+      "backed_by_candidate_id": "staged_priority_dispatch",
+      "summary": "Split expert-parallel communication into priority stages."
+    },
+    {
+      "operator_id": "recompute_eager_sync",
+      "goal_ids": ["communication_critical_path"],
+      "status": "implemented_seed",
+      "source_family": "recompute/sync schedule",
+      "backed_by_candidate_id": "recompute_eager_sync",
+      "summary": "Collapse to eager synchronization with recompute removed."
+    },
+    {
+      "operator_id": "staggered_microbatch_overlap",
+      "goal_ids": ["communication_critical_path"],
+      "status": "implemented_seed",
+      "source_family": "microbatch overlap window",
+      "backed_by_candidate_id": "staggered_microbatch_overlap",
+      "summary": "Use more microbatches to change overlap windows."
+    },
+    {
+      "operator_id": "ep_priority_over_dp_reduction",
+      "goal_ids": ["communication_critical_path"],
+      "status": "planned_128g",
+      "source_family": "collective priority / scheduling",
+      "backed_by_candidate_id": null,
+      "summary": "Prioritize expert-parallel all-to-all over competing DP reductions."
+    },
+    {
+      "operator_id": "hierarchical_dispatch_chunking",
+      "goal_ids": ["communication_critical_path", "topology_locality"],
+      "status": "planned_128g",
+      "source_family": "hierarchical dispatch",
+      "backed_by_candidate_id": null,
+      "summary": "Stage intra-node then inter-node dispatch chunks."
+    },
+    {
+      "operator_id": "delayed_noncritical_collective",
+      "goal_ids": ["communication_critical_path"],
+      "status": "planned_128g",
+      "source_family": "noncritical collective deferral",
+      "backed_by_candidate_id": null,
+      "summary": "Delay or reshape noncritical collectives away from the critical path."
+    },
+    {
+      "operator_id": "local_expert_bias",
+      "goal_ids": ["topology_locality"],
+      "status": "implemented_seed",
+      "source_family": "locality-aware routing",
+      "backed_by_candidate_id": "local_expert_bias",
+      "summary": "Apply a mild locality bias to current-rank experts."
+    },
+    {
+      "operator_id": "near_tie_locality_router",
+      "goal_ids": ["topology_locality"],
+      "status": "implemented_seed",
+      "source_family": "locality-aware tie-breaking",
+      "backed_by_candidate_id": "near_tie_locality_router",
+      "summary": "Only prefer local experts when scores are near tied."
+    },
+    {
+      "operator_id": "local_remote_staged_dispatch",
+      "goal_ids": ["communication_critical_path", "topology_locality"],
+      "status": "implemented_seed",
+      "source_family": "local-vs-remote staging",
+      "backed_by_candidate_id": "local_remote_staged_dispatch",
+      "summary": "Send local-owner traffic before remote-owner traffic."
+    },
+    {
+      "operator_id": "node_local_replica_prefer",
+      "goal_ids": ["topology_locality"],
+      "status": "planned_128g",
+      "source_family": "node-local replica preference",
+      "backed_by_candidate_id": null,
+      "summary": "Prefer node-local replicas when they reduce cross-node traffic."
+    },
+    {
+      "operator_id": "payload_dedup_aggregation",
+      "goal_ids": ["topology_locality"],
+      "status": "planned_128g",
+      "source_family": "aggregation / de-dup",
+      "backed_by_candidate_id": null,
+      "summary": "Aggregate or de-duplicate token payloads before remote dispatch."
+    },
+    {
+      "operator_id": "random_expert_shuffle",
+      "goal_ids": ["straggler_load_skew"],
+      "status": "synthetic_negative",
+      "backed_by_candidate_id": null,
+      "summary": "Randomly reshuffle expert ownership without bottleneck awareness."
+    },
+    {
+      "operator_id": "extra_sync_barrier",
+      "goal_ids": ["communication_critical_path"],
+      "status": "synthetic_negative",
+      "backed_by_candidate_id": null,
+      "summary": "Insert an extra synchronization barrier in the critical path."
+    },
+    {
+      "operator_id": "force_remote_router",
+      "goal_ids": ["topology_locality"],
+      "status": "synthetic_negative",
+      "backed_by_candidate_id": null,
+      "summary": "Bias routing away from local experts to increase remote traffic."
+    }
+  ],
+  "candidate_combinations": [
+    {
+      "combination_id": "r1_lb_overflow_only",
+      "base_anchor_id": "anchor_plain_v0",
+      "goal_id": "straggler_load_skew",
+      "operator_ids": ["overflow_reroute"],
+      "status": "may_work",
+      "expected_round_delta": "small_positive"
+    },
+    {
+      "combination_id": "r1_lb_layout_plus_local_spill",
+      "base_anchor_id": "anchor_plain_v0",
+      "goal_id": "straggler_load_skew",
+      "operator_ids": ["layout_striped", "local_backup_reroute"],
+      "status": "may_work",
+      "expected_round_delta": "medium_positive"
+    },
+    {
+      "combination_id": "r1_lb_secondary_balance",
+      "base_anchor_id": "anchor_plain_v0",
+      "goal_id": "straggler_load_skew",
+      "operator_ids": ["balanced_secondary_route"],
+      "status": "may_work",
+      "expected_round_delta": "small_positive"
+    },
+    {
+      "combination_id": "r1_lb_hot_relayout_replica",
+      "base_anchor_id": "anchor_plain_v0",
+      "goal_id": "straggler_load_skew",
+      "operator_ids": ["hot_expert_relayout", "hot_expert_replication"],
+      "status": "may_work",
+      "expected_round_delta": "large_positive"
+    },
+    {
+      "combination_id": "r1_lb_random_shuffle",
+      "base_anchor_id": "anchor_plain_v0",
+      "goal_id": "straggler_load_skew",
+      "operator_ids": ["random_expert_shuffle"],
+      "status": "definite_negative",
+      "expected_round_delta": "negative"
+    },
+    {
+      "combination_id": "r2_cp_dispatch_stage",
+      "base_anchor_id": "anchor_lb_v1",
+      "goal_id": "communication_critical_path",
+      "operator_ids": ["staged_priority_dispatch", "locality_first_dispatch"],
+      "status": "may_work",
+      "expected_round_delta": "medium_positive"
+    },
+    {
+      "combination_id": "r2_cp_microbatch_overlap",
+      "base_anchor_id": "anchor_lb_v1",
+      "goal_id": "communication_critical_path",
+      "operator_ids": ["staggered_microbatch_overlap", "recompute_eager_sync"],
+      "status": "may_work",
+      "expected_round_delta": "medium_positive"
+    },
+    {
+      "combination_id": "r2_cp_ep_priority_hierarchical",
+      "base_anchor_id": "anchor_lb_v1",
+      "goal_id": "communication_critical_path",
+      "operator_ids": ["ep_priority_over_dp_reduction", "hierarchical_dispatch_chunking"],
+      "status": "may_work",
+      "expected_round_delta": "large_positive"
+    },
+    {
+      "combination_id": "r2_cp_barrier_bad",
+      "base_anchor_id": "anchor_lb_v1",
+      "goal_id": "communication_critical_path",
+      "operator_ids": ["extra_sync_barrier"],
+      "status": "definite_negative",
+      "expected_round_delta": "negative"
+    },
+    {
+      "combination_id": "r3_topo_near_tie_stage",
+      "base_anchor_id": "anchor_cp_v2",
+      "goal_id": "topology_locality",
+      "operator_ids": ["near_tie_locality_router", "local_remote_staged_dispatch"],
+      "status": "may_work",
+      "expected_round_delta": "medium_positive"
+    },
+    {
+      "combination_id": "r3_topo_local_bias_plus_replica",
+      "base_anchor_id": "anchor_cp_v2",
+      "goal_id": "topology_locality",
+      "operator_ids": ["local_expert_bias", "node_local_replica_prefer"],
+      "status": "may_work",
+      "expected_round_delta": "medium_positive"
+    },
+    {
+      "combination_id": "r3_topo_hierarchical_dedup",
+      "base_anchor_id": "anchor_cp_v2",
+      "goal_id": "topology_locality",
+      "operator_ids": ["hierarchical_dispatch_chunking", "payload_dedup_aggregation"],
+      "status": "may_work",
+      "expected_round_delta": "large_positive"
+    },
+    {
+      "combination_id": "r3_topo_force_remote",
+      "base_anchor_id": "anchor_cp_v2",
+      "goal_id": "topology_locality",
+      "operator_ids": ["force_remote_router"],
+      "status": "definite_negative",
+      "expected_round_delta": "negative"
+    }
+  ],
+  "anchors": [
+    {
+      "anchor_id": "anchor_plain_v0",
+      "parent_anchor_id": null,
+      "applied_operator_ids": [],
+      "dominant_goal": "straggler_load_skew",
+      "summary": "Plain first-pass implementation."
+    },
+    {
+      "anchor_id": "anchor_lb_v1",
+      "parent_anchor_id": "anchor_plain_v0",
+      "applied_operator_ids": ["layout_striped", "local_backup_reroute"],
+      "dominant_goal": "communication_critical_path",
+      "summary": "Example promoted anchor after first-round skew reduction."
+    },
+    {
+      "anchor_id": "anchor_cp_v2",
+      "parent_anchor_id": "anchor_lb_v1",
+      "applied_operator_ids": ["layout_striped", "local_backup_reroute", "staged_priority_dispatch"],
+      "dominant_goal": "topology_locality",
+      "summary": "Example promoted anchor after communication critical-path reduction."
+    }
+  ],
+  "round_branches": [
+    {
+      "round_id": "branch_round_1",
+      "input_anchor_id": "anchor_plain_v0",
+      "goal_id": "straggler_load_skew",
+      "candidate_combination_ids": [
+        "r1_lb_overflow_only",
+        "r1_lb_layout_plus_local_spill",
+        "r1_lb_secondary_balance",
+        "r1_lb_hot_relayout_replica",
+        "r1_lb_random_shuffle"
+      ],
+      "promotion_options": [
+        "anchor_lb_v1"
+      ]
+    },
+    {
+      "round_id": "branch_round_2",
+      "input_anchor_id": "anchor_lb_v1",
+      "goal_id": "communication_critical_path",
+      "candidate_combination_ids": [
+        "r2_cp_dispatch_stage",
+        "r2_cp_microbatch_overlap",
+        "r2_cp_ep_priority_hierarchical",
+        "r2_cp_barrier_bad"
+      ],
+      "promotion_options": [
+        "anchor_cp_v2"
+      ]
+    },
+    {
+      "round_id": "branch_round_3",
+      "input_anchor_id": "anchor_cp_v2",
+      "goal_id": "topology_locality",
+      "candidate_combination_ids": [
+        "r3_topo_near_tie_stage",
+        "r3_topo_local_bias_plus_replica",
+        "r3_topo_hierarchical_dedup",
+        "r3_topo_force_remote"
+      ],
+      "promotion_options": []
+    }
+  ]
+}

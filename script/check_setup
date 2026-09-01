@@ -1,0 +1,139 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+PYTHON_BIN="${PYTHON_BIN:-python3}"
+MAYA_ROOT="${MAYA_ROOT:-$ROOT/FlexEva/backends/maya}"
+PROOT_BIN="${PROOT_BIN:-$ROOT/.deps/proot-5.3.1/bin/proot}"
+CUDA_HOME="${CUDA_HOME:-/usr/local/cuda}"
+CUDA_LIB_DIR="${CUDA_LIB_DIR:-$CUDA_HOME/lib64}"
+MIN_GPFS_FREE_GIB="${MIN_GPFS_FREE_GIB:-20}"
+
+fail() {
+    echo "setup check: FAIL: $*" >&2
+    exit 2
+}
+
+require_command() {
+    command -v "$1" >/dev/null 2>&1 || fail "required command is unavailable: $1"
+}
+
+if [[ "$PYTHON_BIN" != */* ]]; then
+    PYTHON_BIN="$(command -v "$PYTHON_BIN" || true)"
+fi
+[[ -n "$PYTHON_BIN" ]] || fail "Python is unavailable"
+PYTHON_BIN="$(realpath -e "$PYTHON_BIN")"
+MAYA_ROOT="$(realpath -e "$MAYA_ROOT")"
+[[ -x "$PROOT_BIN" ]] || fail "PRoot is unavailable: $PROOT_BIN"
+PROOT_BIN="$(realpath -e "$PROOT_BIN")"
+
+[[ "$(uname -m)" == "x86_64" ]] || fail "expected x86_64, found $(uname -m)"
+for name in git cmake g++ make protoc mpicxx nvidia-smi; do
+    require_command "$name"
+done
+[[ -x "$CUDA_HOME/bin/nvcc" ]] || fail "CUDA compiler is unavailable: $CUDA_HOME/bin/nvcc"
+[[ "$(cmake --version | awk 'NR == 1 { print $3 }')" == "3.22.1" ]] || fail "CMake must be 3.22.1"
+[[ "$(g++ -dumpfullversion -dumpversion)" == 11.4* ]] || fail "g++ must be 11.4.x"
+"$CUDA_HOME/bin/nvcc" --version | grep -q 'release 12.8' || fail "CUDA toolkit must be 12.8"
+
+for path in \
+    "$MAYA_ROOT/fake-cuda/frun" \
+    "$MAYA_ROOT/fake-cuda/build/liboutput/libcudart.so.12" \
+    "$MAYA_ROOT/fake-cuda/build/liboutput/libnccl.so.2" \
+    "$MAYA_ROOT/build/lowlevel-interface/libcuda_real_wrappers.so" \
+    "$MAYA_ROOT/build/lowlevel-interface/libnccl_real_wrappers.so" \
+    "$MAYA_ROOT/build/lowlevel-interface/libcublas_real_wrappers.so" \
+    "$MAYA_ROOT/build/lowlevel-interface/liblowlevel_interface_runtime.so" \
+    "$MAYA_ROOT/CppEvent/libcpp_event_runtime_shared.so" \
+    "$MAYA_ROOT/CppEvent/libcpp_event_tls_shared.so"; do
+    [[ -e "$path" ]] || fail "setup output is missing: $path"
+done
+[[ -x "$MAYA_ROOT/fake-cuda/frun" ]] || fail "FakeCUDA launcher is not executable"
+"$PROOT_BIN" /bin/true >/dev/null || fail "PRoot execution probe failed"
+"$PROOT_BIN" --version | grep -q 'v5.3.1-99a84175' || fail "unexpected PRoot version"
+
+TORCH_LIB="$($PYTHON_BIN -c 'from pathlib import Path; import torch; print(Path(torch.__file__).resolve().parent / "lib")')" \
+    || fail "PyTorch is unavailable"
+PYTHONPATH="$ROOT/FlexEva/flexmaya_ras/src:$MAYA_ROOT/python:$MAYA_ROOT/CppEvent:$MAYA_ROOT/gpu_estimator/fake_driver_xgboost_provider_runtime_only_bundle/src${PYTHONPATH:+:$PYTHONPATH}" \
+LD_LIBRARY_PATH="$MAYA_ROOT/CppEvent:$MAYA_ROOT/build/lowlevel-interface:$TORCH_LIB:$CUDA_LIB_DIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+    "$PYTHON_BIN" - <<'PY'
+import ctypes
+import platform
+
+import matplotlib
+import numpy
+import torch
+import xgboost
+from fake_driver_xgboost_provider import FakeDriverXGBoostProvider
+import cpp_event_py
+import cpp_event_tls
+import flexmaya_ras
+from flexsim.estimator import Estimator
+
+checks = {
+    "Python": (platform.python_version(), "3.12.13"),
+    "PyTorch": (str(torch.__version__), "2.8.0+cu128"),
+    "PyTorch CUDA": (torch.version.cuda, "12.8"),
+}
+for name, (actual, expected) in checks.items():
+    if actual != expected:
+        raise SystemExit(f"setup check: FAIL: {name}={actual}, expected {expected}")
+if not torch.cuda.is_available():
+    raise SystemExit("setup check: FAIL: PyTorch CUDA is unavailable")
+if torch.cuda.device_count() != 8:
+    raise SystemExit(f"setup check: FAIL: PyTorch sees {torch.cuda.device_count()} GPUs, expected 8")
+if not torch.distributed.is_nccl_available():
+    raise SystemExit("setup check: FAIL: PyTorch NCCL backend is unavailable")
+for name in (
+    "SharedEventArena",
+    "build_rank_grouped_trace_ras_from_binary",
+    "patch_trace_code_partitions",
+):
+    if not hasattr(flexmaya_ras, name):
+        raise SystemExit(f"setup check: FAIL: flexmaya_ras.{name} is unavailable")
+for library in ("libcuda.so.1", "libnccl.so.2", "libcublas.so.12"):
+    try:
+        ctypes.CDLL(library)
+    except OSError as error:
+        raise SystemExit(f"setup check: FAIL: cannot load {library}: {error}") from error
+FakeDriverXGBoostProvider()
+PY
+
+GPU_REPORT="$(nvidia-smi --query-gpu=index,name,memory.total --format=csv,noheader,nounits)" \
+    || fail "nvidia-smi GPU query failed"
+GPU_COUNT="$(wc -l <<<"$GPU_REPORT" | tr -d ' ')"
+[[ "$GPU_COUNT" == "8" ]] || fail "GPU count=$GPU_COUNT, expected 8"
+awk -F, '
+    {
+        gsub(/^[ \t]+|[ \t]+$/, "", $1)
+        gsub(/^[ \t]+|[ \t]+$/, "", $2)
+        gsub(/^[ \t]+|[ \t]+$/, "", $3)
+        if ($1 + 0 != NR - 1 || $2 != "NVIDIA A100-SXM4-80GB" || $3 + 0 < 81920) exit 1
+    }
+' <<<"$GPU_REPORT" || fail "expected eight NVIDIA A100-SXM4-80GB GPUs"
+
+TOPOLOGY="$(nvidia-smi topo -m)" || fail "cannot inspect GPU topology"
+awk '
+    /^GPU[0-7][[:space:]]/ {
+        row = substr($1, 4) + 0
+        seen++
+        for (col = 0; col < 8; col++) {
+            value = $(col + 2)
+            if (col == row) {
+                if (value != "X") bad = 1
+            } else if (value != "NV12") {
+                bad = 1
+            }
+        }
+    }
+    END { exit !(seen == 8 && !bad) }
+' <<<"$TOPOLOGY" || fail "GPU topology is not full NV12"
+
+FILESYSTEM="$(stat -f -c %T "$ROOT")" || fail "cannot inspect repository filesystem"
+[[ "$FILESYSTEM" == "gpfs" ]] || fail "repository filesystem=$FILESYSTEM, expected gpfs"
+FREE_KIB="$(df -Pk "$ROOT" | awk 'NR == 2 { print $4 }')"
+[[ "$MIN_GPFS_FREE_GIB" =~ ^[0-9]+$ ]] || fail "MIN_GPFS_FREE_GIB must be a non-negative integer"
+(( FREE_KIB >= MIN_GPFS_FREE_GIB * 1024 * 1024 )) \
+    || fail "GPFS has less than $MIN_GPFS_FREE_GIB GiB free"
+
+echo "AE setup check: PASS"

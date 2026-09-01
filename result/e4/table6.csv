@@ -1,0 +1,4 @@
+Workload,Optimization,Init metric,Refresh speedup,Reuse rate
+ResNet,torch.compile,0.778,3.62,79.15
+BERT,FSDP sharding,0.861,4.82,91.95
+ViT,activation checkpointing,0.862,4.38,89.12

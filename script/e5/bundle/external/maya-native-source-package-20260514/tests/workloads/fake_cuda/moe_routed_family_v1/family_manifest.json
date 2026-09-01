@@ -1,0 +1,91 @@
+{
+  "family_id": "moe_routed_family_v1",
+  "base_workload": "/home/muxi/test-sim/tests/workloads/fake_cuda/moe_topk.py",
+  "intent": "Reviewable local sibling family for routed top-k MoE with both runtime-control and code-level semantic variants.",
+  "variants": [
+    {
+      "variant_id": "anchor_baseline",
+      "entry": "/home/muxi/test-sim/tests/workloads/fake_cuda/moe_routed_family_v1/anchor_baseline.py",
+      "kind": "anchor",
+      "diff_class": "baseline",
+      "summary": "Contiguous expert ownership, ep_size=2, top_k=2, micro_batches=2, recompute enabled."
+    },
+    {
+      "variant_id": "layout_striped",
+      "entry": "/home/muxi/test-sim/tests/workloads/fake_cuda/moe_routed_family_v1/layout_striped.py",
+      "kind": "runtime_control",
+      "diff_class": "layout",
+      "summary": "Only changes expert ownership layout from contiguous to striped."
+    },
+    {
+      "variant_id": "recompute_eager_sync",
+      "entry": "/home/muxi/test-sim/tests/workloads/fake_cuda/moe_routed_family_v1/recompute_eager_sync.py",
+      "kind": "runtime_control",
+      "diff_class": "loop_policy",
+      "summary": "Disables recompute and collapses the loop to eager single-microbatch synchronization."
+    },
+    {
+      "variant_id": "overflow_reroute",
+      "entry": "/home/muxi/test-sim/tests/workloads/fake_cuda/moe_routed_family_v1/overflow_reroute.py",
+      "kind": "code_semantic",
+      "diff_class": "routing_overflow",
+      "summary": "Overflow tokens are rerouted to the currently lightest expert instead of being dropped."
+    },
+    {
+      "variant_id": "locality_first_dispatch",
+      "entry": "/home/muxi/test-sim/tests/workloads/fake_cuda/moe_routed_family_v1/locality_first_dispatch.py",
+      "kind": "code_semantic",
+      "diff_class": "dispatch_packing",
+      "summary": "All-to-all send buffers are packed by routing density instead of original token order."
+    },
+    {
+      "variant_id": "local_backup_reroute",
+      "entry": "/home/muxi/test-sim/tests/workloads/fake_cuda/moe_routed_family_v1/local_backup_reroute.py",
+      "kind": "code_semantic",
+      "diff_class": "local_overflow_backup",
+      "summary": "Overflow tokens spill to local experts before remote fallback, changing both skew relief and locality."
+    },
+    {
+      "variant_id": "balanced_secondary_route",
+      "entry": "/home/muxi/test-sim/tests/workloads/fake_cuda/moe_routed_family_v1/balanced_secondary_route.py",
+      "kind": "code_semantic",
+      "diff_class": "secondary_choice_balance",
+      "summary": "Prefer the second selected expert when the primary expert is already hotter."
+    },
+    {
+      "variant_id": "staged_priority_dispatch",
+      "entry": "/home/muxi/test-sim/tests/workloads/fake_cuda/moe_routed_family_v1/staged_priority_dispatch.py",
+      "kind": "code_semantic",
+      "diff_class": "staged_comm_schedule",
+      "summary": "Expert-parallel dispatch is split into two priority stages instead of one monolithic all-to-all burst."
+    },
+    {
+      "variant_id": "staggered_microbatch_overlap",
+      "entry": "/home/muxi/test-sim/tests/workloads/fake_cuda/moe_routed_family_v1/staggered_microbatch_overlap.py",
+      "kind": "runtime_control",
+      "diff_class": "microbatch_overlap_window",
+      "summary": "Uses more microbatches per step to create a different overlap and synchronization window."
+    },
+    {
+      "variant_id": "local_expert_bias",
+      "entry": "/home/muxi/test-sim/tests/workloads/fake_cuda/moe_routed_family_v1/local_expert_bias.py",
+      "kind": "code_semantic",
+      "diff_class": "router_locality_bias",
+      "summary": "Router logits mildly prefer current-rank experts, changing the local-vs-remote token mix."
+    },
+    {
+      "variant_id": "near_tie_locality_router",
+      "entry": "/home/muxi/test-sim/tests/workloads/fake_cuda/moe_routed_family_v1/near_tie_locality_router.py",
+      "kind": "code_semantic",
+      "diff_class": "router_locality_tiebreak",
+      "summary": "Prefer local experts only under near-tie routing scores rather than applying a global locality bias."
+    },
+    {
+      "variant_id": "local_remote_staged_dispatch",
+      "entry": "/home/muxi/test-sim/tests/workloads/fake_cuda/moe_routed_family_v1/local_remote_staged_dispatch.py",
+      "kind": "code_semantic",
+      "diff_class": "local_remote_dispatch_staging",
+      "summary": "Exchange local-owner traffic before remote-owner traffic to change locality and communication-path shape."
+    }
+  ]
+}

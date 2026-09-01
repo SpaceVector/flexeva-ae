@@ -1,0 +1,18 @@
+{
+  "models": {
+    "cublas_gemm": {
+      "feature_names_path": "cublas_gemm/feature_names.txt",
+      "metadata_path": "cublas_gemm/metadata.json",
+      "metrics_path": "cublas_gemm/train_metrics.json",
+      "model_dir": "cublas_gemm",
+      "model_path": "cublas_gemm/model.json"
+    },
+    "nccl_allreduce": {
+      "feature_names_path": "nccl_allreduce/feature_names.txt",
+      "metadata_path": "nccl_allreduce/metadata.json",
+      "metrics_path": "nccl_allreduce/train_metrics.json",
+      "model_dir": "nccl_allreduce",
+      "model_path": "nccl_allreduce/model.json"
+    }
+  }
+}

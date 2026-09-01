@@ -1,0 +1,27 @@
+{
+  "round_dir": "round_03_sdpa_attention_recovery",
+  "previous_round_dir": "round_02_top1_confident_fallback",
+  "model": "qwen/qwen3.5-plus-02-15",
+  "summary": "Recover from round-2 regression by removing confident-primary fallback and replacing primitive attention with SDPA",
+  "rationale": [
+    "Round 2 showed 52% step time regression (30s -> 46s) due to confident-primary fallback",
+    "The fallback caused excessive token dropping (43123) and poor load balance (CV=3.42)",
+    "Removing the fallback restores standard top-2 routing behavior",
+    "SDPA attention is more efficient than primitive MultiheadAttention with manual masks"
+  ],
+  "expected_effects": [
+    "Step time should return to near round-1 levels (~30s)",
+    "Token dropping should decrease significantly",
+    "Load balance CV should improve",
+    "Attention computation should be faster with SDPA"
+  ],
+  "risks": [
+    "May not fully recover round-1 performance if other factors changed",
+    "SDPA behavior may differ slightly from primitive attention on edge cases"
+  ],
+  "changed_files": [
+    {
+      "path": "tests/workloads/historical_sparse_moe/model.py"
+    }
+  ]
+}

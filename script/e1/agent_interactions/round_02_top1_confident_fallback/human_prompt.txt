@@ -1,0 +1,46 @@
+You are optimizing the next anchor code for a real 128-GPU historical sparse-MoE workload.
+
+Current anchor:
+- historical sparse-MoE baseline
+- packed variable-length dispatch already enabled
+- top-2 routing is still active
+- fixed-capacity token dropping is still active
+- primitive nn.MultiheadAttention causal attention is still active
+
+Measured result from the current anchor on the real cluster:
+- benchmark protocol: 2 train iterations, 1 warmup step, 1 measured step
+- measured step_time_s: 30.1693
+- tokens_dropped: 44457
+- tokens_rerouted: 3147
+- load_balance_cv: 3.9362
+- remote_dispatch_ratio: 0.9995
+- estimated_a2a_bytes: 41634588
+
+What improved:
+- packed dispatch already reduced communication volume dramatically
+- the round-1 target was exceeded
+
+What still looks expensive:
+- almost all routed traffic is still remote
+- secondary routing is still active and may still be doing low-value work
+- load balance is still poor, so weak secondary routes may not be worth the extra dispatch/compute
+
+Optimization goal for this round:
+- get another 8-15 percent step_time improvement if possible
+- keep the change low risk and localized
+- do not switch the whole model to pure top-1 routing yet
+- avoid increasing tokens_dropped too much
+
+Suggested optimization direction:
+- keep packed dispatch
+- keep the existing external benchmark interface
+- add a confident-primary fallback rule: when the primary expert clearly wins, skip the secondary expert route
+- preserve the current metric outputs
+
+Editable files this round:
+- tests/workloads/historical_sparse_moe/model.py
+
+Expected output:
+- directly modified anchor code, not candidate IDs
+- produce the next promoted anchor snapshot
+- keep comments minimal and useful

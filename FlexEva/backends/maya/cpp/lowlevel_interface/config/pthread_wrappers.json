@@ -1,0 +1,77 @@
+{
+    "api_set": "pthread",
+    "apis": [
+        {
+            "event_kind": "RuntimeCall",
+            "name": "pthread_create",
+            "parameters": [
+                {
+                    "declaration": "pthread_t * thread",
+                    "name": "thread",
+                    "type": "pthread_t *"
+                },
+                {
+                    "declaration": "const pthread_attr_t * param1",
+                    "name": "param1",
+                    "type": "const pthread_attr_t *"
+                },
+                {
+                    "declaration": "void *(*start_routine)(void *)",
+                    "name": "start_routine",
+                    "type": "void *(*)(void *)"
+                },
+                {
+                    "declaration": "void * arg",
+                    "name": "arg",
+                    "type": "void *"
+                }
+            ],
+            "return_type": "int"
+        },
+        {
+            "event_kind": "Unknown",
+            "name": "pthread_equal",
+            "parameters": [
+                {
+                    "declaration": "pthread_t t1",
+                    "name": "t1",
+                    "type": "pthread_t"
+                },
+                {
+                    "declaration": "pthread_t t2",
+                    "name": "t2",
+                    "type": "pthread_t"
+                }
+            ],
+            "return_type": "int"
+        },
+        {
+            "event_kind": "RuntimeCall",
+            "name": "pthread_join",
+            "parameters": [
+                {
+                    "declaration": "pthread_t thread",
+                    "name": "thread",
+                    "type": "pthread_t"
+                },
+                {
+                    "declaration": "void ** retval",
+                    "name": "retval",
+                    "type": "void **"
+                }
+            ],
+            "return_type": "int"
+        },
+        {
+            "event_kind": "Unknown",
+            "name": "pthread_self",
+            "parameters": [],
+            "return_type": "pthread_t"
+        }
+    ],
+    "includes": [
+        "\"lowlevel/interface/wrapper_template.hpp\"",
+        "<pthread.h>"
+    ],
+    "output": "generated/pthread_wrappers.cpp"
+}

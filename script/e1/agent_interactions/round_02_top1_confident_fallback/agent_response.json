@@ -1,0 +1,30 @@
+{
+  "round_dir": "round_02_top1_confident_fallback",
+  "previous_round_dir": "round_01_packed_variable_dispatch",
+  "model": "qwen/qwen3.5-plus-02-15",
+  "summary": "Add confident-primary fallback rule to skip secondary expert routing when primary clearly wins",
+  "rationale": [
+    "Current top-2 routing sends almost all traffic remotely (0.9995 ratio) with poor load balance (CV=3.94)",
+    "Secondary routes with low confidence contribute little value but consume capacity and communication",
+    "Confident-primary fallback skips secondary when primary score > 0.80 or score gap > 0.20",
+    "This reduces tokens_rerouted and estimated_a2a_bytes while preserving model quality",
+    "Low-risk localized change that keeps top-2 as default behavior"
+  ],
+  "expected_effects": [
+    "Reduce tokens_rerouted by skipping weak secondary routes",
+    "Lower estimated_a2a_bytes due to fewer secondary token dispatches",
+    "Improve load_balance_cv by reducing contention on secondary expert capacity",
+    "Achieve 8-15% step_time improvement from reduced communication",
+    "Keep tokens_dropped stable or slightly reduced"
+  ],
+  "risks": [
+    "May slightly reduce model expressiveness for ambiguous tokens",
+    "Confidence thresholds may need tuning for different workloads",
+    "Could increase tokens_dropped if capacity is too tight"
+  ],
+  "changed_files": [
+    {
+      "path": "tests/workloads/historical_sparse_moe/model.py"
+    }
+  ]
+}

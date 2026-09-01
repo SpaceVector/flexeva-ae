@@ -1,0 +1,34 @@
+{
+  "round_dir": "round_04_switch_top1_routing",
+  "previous_round_dir": "round_03_sdpa_attention_recovery",
+  "model": "qwen/qwen3.5-plus-02-15",
+  "summary": "Switch from top-2 to Switch-style top-1 routing for sparse-MoE workload",
+  "rationale": [
+    "Top-1 routing eliminates secondary expert path, reducing A2A traffic and token rerouting",
+    "Simplifies capacity calculation and expert assignment logic",
+    "Expected to reduce step time by removing secondary token handling overhead",
+    "Maintains packed variable-length dispatch and SDPA attention from previous rounds"
+  ],
+  "expected_effects": [
+    "tokens_rerouted should drop to 0.0 (no secondary routing)",
+    "estimated_a2a_bytes should decrease due to single expert per token",
+    "step_time_s should improve toward the 30.1693s baseline from round 1",
+    "load_balance_cv may change due to different routing distribution"
+  ],
+  "risks": [
+    "Top-1 routing may increase tokens_dropped if capacity is too tight",
+    "Model quality may differ from top-2 baseline (acceptable for benchmark)",
+    "Validation logic needed update to allow top_k=1"
+  ],
+  "changed_files": [
+    {
+      "path": "tests/workloads/historical_sparse_moe/config.py"
+    },
+    {
+      "path": "tests/workloads/historical_sparse_moe/model.py"
+    },
+    {
+      "path": "tests/workloads/historical_sparse_moe/configs/gshard_style_fastloop.json"
+    }
+  ]
+}

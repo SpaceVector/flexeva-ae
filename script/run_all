@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+PYTHON_BIN="${PYTHON_BIN:-python3}"
+MODE="${1:-audit}"
+
+[[ $# -le 1 ]] || { echo "usage: script/run_all [audit]" >&2; exit 2; }
+case "$MODE" in
+    audit)
+        "$PYTHON_BIN" "$ROOT/script/e1/derive_results.py" --check-only
+        "$PYTHON_BIN" "$ROOT/script/e2/validate_results.py" --check-only
+        "$PYTHON_BIN" "$ROOT/script/e3/validate_results.py"
+        "$PYTHON_BIN" "$ROOT/script/e4/validate_results.py"
+        PYTHON_BIN="$PYTHON_BIN" "$ROOT/script/run_e5" audit
+        echo "AE retained-result audit: PASS (E1-E5)"
+        ;;
+    -h|--help)
+        echo "usage: script/run_all [audit]"
+        echo "Fresh distributed runs must follow E1.md through E5.md."
+        ;;
+    *)
+        echo "run_all: only the single-host retained-result audit is supported" >&2
+        echo "follow E1.md through E5.md for fresh distributed runs" >&2
+        exit 2
+        ;;
+esac

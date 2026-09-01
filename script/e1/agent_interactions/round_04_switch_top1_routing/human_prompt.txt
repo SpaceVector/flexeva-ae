@@ -1,0 +1,42 @@
+You are optimizing the next anchor code for a real 128-GPU historical sparse-MoE workload.
+
+Current anchor:
+- packed variable-length dispatch is enabled
+- SDPA causal attention is enabled
+- standard top-2 routing is active again
+
+Measured result from the current anchor on the real cluster:
+- benchmark protocol: 2 train iterations, 1 warmup step, 1 measured step
+- measured step_time_s: 34.0680
+- tokens_dropped: 39558
+- tokens_rerouted: 5859
+- load_balance_cv: 2.4145
+- remote_dispatch_ratio: 0.9853
+- estimated_a2a_bytes: 76632984
+
+Additional context:
+- the best earlier round in this loop was round 1 at `30.1693s`
+- the current anchor is still `12.92%` slower than that best round
+- the current anchor still reroutes many secondary tokens and still moves substantial remote traffic
+
+Optimization goal for this round:
+- pursue another meaningful step-time reduction
+- it is now acceptable to make a more aggressive routing-semantic change
+- keep the implementation localized and benchmark-compatible
+
+Suggested optimization direction:
+- switch from top-2 routing to Switch-style top-1 routing
+- remove the secondary expert path entirely
+- update capacity handling so it matches top-1 routing semantics
+- keep packed dispatch and SDPA attention
+- preserve the current benchmark metrics and external interfaces
+
+Editable files this round:
+- tests/workloads/historical_sparse_moe/model.py
+- tests/workloads/historical_sparse_moe/config.py
+- tests/workloads/historical_sparse_moe/configs/gshard_style_fastloop.json
+
+Expected output:
+- directly modified anchor code for the next promoted round
+- keep comments minimal and useful
+- prefer a coherent top-1 conversion instead of partial heuristics

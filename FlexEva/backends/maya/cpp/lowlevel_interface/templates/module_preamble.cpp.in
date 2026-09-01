@@ -1,0 +1,257 @@
+{{AUTOGEN_BANNER}}
+
+{{INCLUDES}}
+
+#include <cstdint>
+#include <mutex>
+#include <string>
+#include <unordered_map>
+
+#if defined(__has_include)
+#  if __has_include(<cxxabi.h>)
+#    include <cxxabi.h>
+#    define LLI_HAS_CXA_DEMANGLE 1
+#  endif
+#endif
+
+#ifndef LLI_HAS_CXA_DEMANGLE
+#  define LLI_HAS_CXA_DEMANGLE 0
+#endif
+
+namespace {
+
+struct ApiMetadata final {
+  const char *name;
+  cpp_event::EventKind kind;
+};
+
+{{API_METADATA_BLOCK}}
+
+[[nodiscard]] void *backend_handle() {
+#ifdef {{BACKEND_LIBRARY_MACRO}}
+  static void *handle = []() -> void * {
+    void *lib = dlopen({{BACKEND_LIBRARY_MACRO}}, RTLD_NOW | RTLD_LOCAL);
+    if (lib == nullptr) {
+      throw std::runtime_error(std::string("dlopen failed: ") + dlerror());
+    }
+    return lib;
+  }();
+  return handle;
+#else
+  return RTLD_NEXT;
+#endif
+}
+
+cpp_event::EventKind lookup_event_kind_local(std::string_view api_name) {
+  if (api_name == "cudaEventRecordWithFlags") {
+    api_name = "cudaEventRecord";
+  } else if (api_name == "cudaEventCreate") {
+    api_name = "cudaEventCreateWithFlags";
+  } else if (api_name == "cudaStreamCreateWithFlags" ||
+             api_name == "cudaStreamCreateWithPriority") {
+    api_name = "cudaStreamCreate";
+  } else if (api_name == "ncclBcast") {
+    api_name = "ncclBroadcast";
+  }
+  for (const auto &entry : kApiMetadata) {
+    if (api_name == entry.name) {
+      return entry.kind;
+    }
+  }
+  return cpp_event::EventKind::kUnknown;
+}
+
+std::string_view canonicalize_api_name_local(std::string_view api_name) {
+  if (api_name == "cudaEventRecordWithFlags") {
+    return "cudaEventRecord";
+  }
+  if (api_name == "cudaEventCreate") {
+    return "cudaEventCreateWithFlags";
+  }
+  if (api_name == "cudaStreamCreateWithFlags" ||
+      api_name == "cudaStreamCreateWithPriority") {
+    return "cudaStreamCreate";
+  }
+  if (api_name == "ncclBcast") {
+    return "ncclBroadcast";
+  }
+  return api_name;
+}
+
+void *resolve_backend_local(std::string_view api_name) {
+  auto name = std::string(api_name);
+  dlerror();
+  void *symbol = dlsym(backend_handle(), name.c_str());
+  if (char *error = dlerror()) {
+    throw std::runtime_error(std::string("dlsym failed for ") + name + ": " +
+                             error);
+  }
+  return symbol;
+}
+
+int normalize_cublas_dtype_code_from_int(int raw) {
+#if defined(CUBLAS_VER_MAJOR) || defined(CUBLAS_VERSION)
+  switch (raw) {
+#ifdef CUBLAS_COMPUTE_16F
+  case static_cast<int>(CUBLAS_COMPUTE_16F):
+    return 0;
+#endif
+#ifdef CUBLAS_COMPUTE_32F
+  case static_cast<int>(CUBLAS_COMPUTE_32F):
+    return 1;
+#endif
+#ifdef CUBLAS_COMPUTE_32F_FAST_16F
+  case static_cast<int>(CUBLAS_COMPUTE_32F_FAST_16F):
+    return 0;
+#endif
+#ifdef CUBLAS_COMPUTE_32F_FAST_16BF
+  case static_cast<int>(CUBLAS_COMPUTE_32F_FAST_16BF):
+    return 2;
+#endif
+  default:
+    break;
+  }
+#endif
+#ifdef CUDA_VERSION
+  switch (raw) {
+  case static_cast<int>(CUDA_R_16F):
+    return 0;
+  case static_cast<int>(CUDA_R_32F):
+    return 1;
+#ifdef CUDA_R_16BF
+  case static_cast<int>(CUDA_R_16BF):
+    return 2;
+#endif
+  default:
+    break;
+  }
+#endif
+  return raw;
+}
+
+int normalize_nccl_dtype_code_from_int(int raw) {
+#ifdef NCCL_MAJOR
+  switch (raw) {
+  case static_cast<int>(ncclFloat16):
+  case static_cast<int>(ncclHalf):
+    return 0;
+#ifdef ncclBfloat16
+  case static_cast<int>(ncclBfloat16):
+    return 1;
+#endif
+  case static_cast<int>(ncclFloat32):
+    return 2;
+  default:
+    break;
+  }
+#endif
+  return raw;
+}
+
+const char *normalize_nccl_reduction_name_from_int(int raw) {
+#ifdef NCCL_MAJOR
+  switch (raw) {
+  case static_cast<int>(ncclSum):
+    return "sum";
+  default:
+    break;
+  }
+#endif
+  return nullptr;
+}
+
+template <typename T>
+std::enable_if_t<std::is_pointer_v<T>, std::string>
+format_handle_id(T value) {
+  auto raw = reinterpret_cast<std::uintptr_t>(value);
+  return std::to_string(raw);
+}
+
+template <typename T>
+std::enable_if_t<std::is_pointer_v<T>, std::string>
+format_created_handle_id(T *value_ptr) {
+  if (value_ptr == nullptr) {
+    return "0";
+  }
+  return format_handle_id(*value_ptr);
+}
+
+std::string maybe_demangle_symbol_name(const char *symbol_name) {
+  if (symbol_name == nullptr || *symbol_name == '\0') {
+    return {};
+  }
+#if LLI_HAS_CXA_DEMANGLE
+  int status = 0;
+  char *demangled =
+      abi::__cxa_demangle(symbol_name, nullptr, nullptr, &status);
+  if (status == 0 && demangled != nullptr) {
+    std::string result(demangled);
+    std::free(demangled);
+    return result;
+  }
+  if (demangled != nullptr) {
+    std::free(demangled);
+  }
+#endif
+  return std::string(symbol_name);
+}
+
+std::unordered_map<std::uintptr_t, std::string> &registered_kernel_names() {
+  static auto *registry =
+      new std::unordered_map<std::uintptr_t, std::string>();
+  return *registry;
+}
+
+std::mutex &registered_kernel_names_mutex() {
+  static auto *lock = new std::mutex();
+  return *lock;
+}
+
+void remember_registered_kernel(const void *host_fun, const char *device_name,
+                                const char *device_fun) {
+  if (host_fun == nullptr) {
+    return;
+  }
+  const char *raw_name =
+      (device_name != nullptr && *device_name != '\0') ? device_name : device_fun;
+  if (raw_name == nullptr || *raw_name == '\0') {
+    return;
+  }
+  std::string readable = maybe_demangle_symbol_name(raw_name);
+  if (readable.empty()) {
+    return;
+  }
+  std::lock_guard<std::mutex> guard(registered_kernel_names_mutex());
+  registered_kernel_names()[reinterpret_cast<std::uintptr_t>(host_fun)] =
+      std::move(readable);
+}
+
+std::string lookup_registered_kernel_name(const void *func) {
+  if (func == nullptr) {
+    return {};
+  }
+  std::lock_guard<std::mutex> guard(registered_kernel_names_mutex());
+  auto it = registered_kernel_names().find(reinterpret_cast<std::uintptr_t>(func));
+  if (it == registered_kernel_names().end()) {
+    return {};
+  }
+  return it->second;
+}
+
+std::string format_kernel_name(const void *func) {
+  if (func == nullptr) {
+    return {};
+  }
+  std::string registered = lookup_registered_kernel_name(func);
+  if (!registered.empty()) {
+    return registered;
+  }
+  Dl_info info{};
+  if (dladdr(const_cast<void *>(func), &info) == 0 || info.dli_sname == nullptr) {
+    return {};
+  }
+  return maybe_demangle_symbol_name(info.dli_sname);
+}
+
+} // namespace
+

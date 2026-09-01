@@ -1,0 +1,348 @@
+from __future__ import annotations
+
+import os
+import math
+from dataclasses import dataclass
+
+import torch
+import torch.distributed as dist
+import torch.nn as nn
+import torch.nn.functional as F
+
+from .config import HistoricalSparseMoEModelConfig, HistoricalSparseMoEWorkloadConfig
+
+
+def _dist_ready() -> bool:
+    return dist.is_available() and dist.is_initialized()
+
+
+def _all_to_all_fixed(tensor: torch.Tensor, group: dist.ProcessGroup | None) -> torch.Tensor:
+    if not _dist_ready():
+        return tensor
+    recv = torch.empty_like(tensor)
+    dist.all_to_all_single(recv, tensor.contiguous(), group=group)
+    return recv
+
+
+def _safe_topk(
+    tensor: torch.Tensor,
+    k: int,
+    *,
+    dim: int = -1,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """
+    Evaluation-only compatibility path for fake-cuda.
+
+    `torch.topk` currently crashes under fake-cuda for the historical routed-MoE
+    workload. When explicitly enabled, use `sort + slice` as a semantically
+    equivalent replacement so Maya-lite can capture the routed workload without
+    changing the normal real-cluster benchmark path.
+    """
+    if tensor.is_cuda and os.environ.get("FLEXSIM_MAYA_SAFE_TOPK", "").lower() in {"1", "true", "yes", "on"}:
+        # fake-cuda does not currently support the CUDA sort/topk kernels that
+        # PyTorch dispatches here. Route this compatibility path through CPU so
+        # evaluator-only capture remains stable without changing the real CUDA path.
+        cpu_tensor = tensor.detach().cpu()
+        sorted_values, sorted_indices = torch.sort(cpu_tensor, dim=dim, descending=True)
+        slices = [slice(None)] * sorted_values.dim()
+        slices[dim] = slice(0, k)
+        index = tuple(slices)
+        return sorted_values[index].to(tensor.device), sorted_indices[index].to(tensor.device)
+    return torch.topk(tensor, k, dim=dim)
+
+
+def _fakecuda_eval_compat_enabled() -> bool:
+    for key in ("FLEXSIM_MAYA_SAFE_ROUTING", "FLEXSIM_MAYA_SAFE_TOPK"):
+        if os.environ.get(key, "").lower() in {"1", "true", "yes", "on"}:
+            return True
+    return False
+
+
+@dataclass
+class MoEForwardStats:
+    router_aux_loss: torch.Tensor
+    tokens_dropped: float
+    tokens_rerouted: float
+    load_balance_cv: float
+    remote_dispatch_ratio: float
+    dispatch_imbalance_cv: float
+    estimated_a2a_bytes: float
+
+
+class PrimitiveCausalSelfAttention(nn.Module):
+    def __init__(self, model_cfg: HistoricalSparseMoEModelConfig):
+        super().__init__()
+        self.attn = nn.MultiheadAttention(
+            embed_dim=model_cfg.hidden_size,
+            num_heads=model_cfg.num_attention_heads,
+            dropout=model_cfg.dropout,
+            batch_first=True,
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        seq_len = x.size(1)
+        causal_mask = torch.triu(
+            torch.ones((seq_len, seq_len), device=x.device, dtype=torch.bool),
+            diagonal=1,
+        )
+        out, _ = self.attn(x, x, x, attn_mask=causal_mask, need_weights=False)
+        return out
+
+
+class ExpertMLP(nn.Module):
+    def __init__(self, model_cfg: HistoricalSparseMoEModelConfig):
+        super().__init__()
+        inner = model_cfg.hidden_size * model_cfg.ffw_multiplier
+        self.net = nn.Sequential(
+            nn.Linear(model_cfg.hidden_size, inner, bias=False),
+            nn.GELU(),
+            nn.Linear(inner, model_cfg.hidden_size, bias=False),
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.net(x)
+
+
+class DenseFFN(nn.Module):
+    def __init__(self, model_cfg: HistoricalSparseMoEModelConfig):
+        super().__init__()
+        inner = model_cfg.hidden_size * model_cfg.ffw_multiplier
+        self.w1 = nn.Linear(model_cfg.hidden_size, inner, bias=False)
+        self.w2 = nn.Linear(inner, model_cfg.hidden_size, bias=False)
+
+    def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, MoEForwardStats]:
+        out = self.w2(F.gelu(self.w1(x)))
+        zero = x.new_zeros(())
+        return out, MoEForwardStats(zero, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+
+
+class HistoricalTop2PaddedMoE(nn.Module):
+    """Early sparse-transformer style top-2 routed MoE with padded dispatch."""
+
+    def __init__(self, cfg: HistoricalSparseMoEWorkloadConfig, ep_group: dist.ProcessGroup | None):
+        super().__init__()
+        self.cfg = cfg
+        self.model_cfg = cfg.model
+        self.ep_group = ep_group
+        self.ep_size = cfg.runtime.expert_parallel_size
+        self.num_local_experts = cfg.num_local_experts
+        self.router = nn.Linear(self.model_cfg.hidden_size, self.model_cfg.num_experts, bias=False)
+        self.experts = nn.ModuleList([ExpertMLP(self.model_cfg) for _ in range(self.num_local_experts)])
+
+    @staticmethod
+    def _tensor_bytes(tensor: torch.Tensor) -> int:
+        return tensor.numel() * tensor.element_size()
+
+    def _capacity(self, num_tokens: int) -> int:
+        factor = self.model_cfg.capacity_factor_train if self.training else self.model_cfg.capacity_factor_eval
+        return max(
+            self.model_cfg.min_capacity,
+            math.ceil(factor * num_tokens * self.model_cfg.top_k / self.model_cfg.num_experts),
+        )
+
+    def _route_tokens(self, flat: torch.Tensor) -> tuple[torch.Tensor, MoEForwardStats]:
+        device = flat.device
+        logits = self.router(flat)
+        probs = torch.softmax(logits, dim=-1)
+        compat_routing = flat.is_cuda and _fakecuda_eval_compat_enabled()
+        routing_probs = probs.detach().cpu() if compat_routing else probs
+        top_scores, top_indices = _safe_topk(routing_probs, self.model_cfg.top_k, dim=-1)
+        top_scores = top_scores / (top_scores.sum(dim=-1, keepdim=True) + 1e-9)
+
+        num_tokens, hidden = flat.shape
+        capacity = self._capacity(num_tokens)
+        count_device = torch.device("cpu") if compat_routing else device
+        expert_counts = torch.zeros(self.model_cfg.num_experts, dtype=torch.long, device=count_device)
+        secondary_assignments = 0
+        dropped = 0
+        ep_rank = dist.get_rank(group=self.ep_group) if _dist_ready() else 0
+
+        send_hidden = flat.new_zeros((self.ep_size, self.num_local_experts, capacity, hidden))
+        send_scores = top_scores.new_zeros((self.ep_size, self.num_local_experts, capacity))
+        send_origin = torch.full(
+            (self.ep_size, self.num_local_experts, capacity),
+            -1,
+            dtype=torch.long,
+            device=device,
+        )
+
+        for token_idx in range(num_tokens):
+            for choice_idx in range(self.model_cfg.top_k):
+                expert = int(top_indices[token_idx, choice_idx].item())
+                position = int(expert_counts[expert].item())
+                if position >= capacity:
+                    dropped += 1
+                    continue
+                dest_rank = expert // self.num_local_experts
+                local_expert = expert % self.num_local_experts
+                send_hidden[dest_rank, local_expert, position] = flat[token_idx]
+                send_scores[dest_rank, local_expert, position] = top_scores[token_idx, choice_idx]
+                send_origin[dest_rank, local_expert, position] = token_idx
+                expert_counts[expert] += 1
+                if choice_idx > 0:
+                    secondary_assignments += 1
+
+        expert_counts_float = expert_counts.float()
+        mean_probs = probs.mean(dim=0)
+        normalized_load = expert_counts_float.to(device=mean_probs.device, dtype=mean_probs.dtype) / max(
+            float(num_tokens * self.model_cfg.top_k), 1.0
+        )
+        aux = (
+            (normalized_load * mean_probs).sum()
+            * self.model_cfg.num_experts
+            * self.model_cfg.router_aux_loss_coef
+        )
+        load_balance_cv = float((expert_counts_float.std() / (expert_counts_float.mean() + 1e-9)).item())
+        send_counts = expert_counts.view(self.ep_size, self.num_local_experts).sum(dim=1).float()
+        remote_assignments = float(send_counts.sum().item() - send_counts[ep_rank].item())
+        total_assignments = float(send_counts.sum().item())
+        remote_dispatch_ratio = remote_assignments / total_assignments if total_assignments > 0 else 0.0
+        dispatch_imbalance_cv = float((send_counts.std() / (send_counts.mean() + 1e-9)).item()) if self.ep_size > 1 else 0.0
+
+        recv_hidden = _all_to_all_fixed(send_hidden, self.ep_group)
+        recv_scores = _all_to_all_fixed(send_scores, self.ep_group)
+        recv_origin = _all_to_all_fixed(send_origin, self.ep_group)
+
+        return_hidden = recv_hidden.new_zeros(recv_hidden.shape)
+        for source_rank in range(self.ep_size):
+            for local_expert in range(self.num_local_experts):
+                valid = recv_origin[source_rank, local_expert] >= 0
+                if not valid.any():
+                    continue
+                expert_out = self.experts[local_expert](recv_hidden[source_rank, local_expert, valid])
+                weights = recv_scores[source_rank, local_expert, valid].unsqueeze(-1)
+                return_hidden[source_rank, local_expert, valid] = expert_out * weights
+
+        returned_hidden = _all_to_all_fixed(return_hidden, self.ep_group)
+        estimated_a2a_bytes = 0.0
+        if self.ep_size > 1:
+            estimated_a2a_bytes = float(
+                self._tensor_bytes(send_hidden)
+                + self._tensor_bytes(send_scores)
+                + self._tensor_bytes(send_origin)
+                + self._tensor_bytes(return_hidden)
+            )
+
+        out = flat.new_zeros(flat.shape)
+        for dest_rank in range(self.ep_size):
+            for local_expert in range(self.num_local_experts):
+                valid = send_origin[dest_rank, local_expert] >= 0
+                if not valid.any():
+                    continue
+                out[send_origin[dest_rank, local_expert, valid].long()] += returned_hidden[dest_rank, local_expert, valid]
+
+        return out, MoEForwardStats(
+            router_aux_loss=aux,
+            tokens_dropped=float(dropped),
+            tokens_rerouted=float(secondary_assignments),
+            load_balance_cv=load_balance_cv,
+            remote_dispatch_ratio=remote_dispatch_ratio,
+            dispatch_imbalance_cv=dispatch_imbalance_cv,
+            estimated_a2a_bytes=estimated_a2a_bytes,
+        )
+
+    def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, MoEForwardStats]:
+        batch, seq, hidden = x.shape
+        flat = x.reshape(batch * seq, hidden)
+        out, stats = self._route_tokens(flat)
+        return out.view(batch, seq, hidden), stats
+
+
+class TransformerBlock(nn.Module):
+    def __init__(self, cfg: HistoricalSparseMoEWorkloadConfig, ep_group: dist.ProcessGroup | None, use_moe: bool):
+        super().__init__()
+        self.ln1 = nn.LayerNorm(cfg.model.hidden_size)
+        self.ln2 = nn.LayerNorm(cfg.model.hidden_size)
+        self.attn = PrimitiveCausalSelfAttention(cfg.model)
+        self.ffn = HistoricalTop2PaddedMoE(cfg, ep_group) if use_moe else DenseFFN(cfg.model)
+
+    def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, MoEForwardStats]:
+        x = x + self.attn(self.ln1(x))
+        ffn_out, stats = self.ffn(self.ln2(x))
+        x = x + ffn_out
+        return x, stats
+
+
+class HistoricalSparseMoEModel(nn.Module):
+    def __init__(self, cfg: HistoricalSparseMoEWorkloadConfig, ep_group: dist.ProcessGroup | None = None):
+        super().__init__()
+        self.cfg = cfg
+        self.token_embed = nn.Embedding(cfg.model.vocab_size, cfg.model.hidden_size)
+        self.pos_embed = nn.Embedding(cfg.model.sequence_length, cfg.model.hidden_size)
+        self.dropout = nn.Dropout(cfg.model.dropout)
+        self.blocks = nn.ModuleList()
+        for layer_idx in range(cfg.model.num_layers):
+            use_moe = (layer_idx % 2 == 1) if cfg.model.moe_every_other_ffn else True
+            self.blocks.append(TransformerBlock(cfg, ep_group, use_moe))
+        self.final_ln = nn.LayerNorm(cfg.model.hidden_size)
+        self.lm_head = nn.Linear(cfg.model.hidden_size, cfg.model.vocab_size, bias=False)
+        self.apply(self._init_weights)
+
+    def parameter_summary(self) -> dict[str, int]:
+        local_total = 0
+        local_expert = 0
+        for name, param in self.named_parameters():
+            count = param.numel()
+            local_total += count
+            if ".experts." in name:
+                local_expert += count
+        dense_shared = local_total - local_expert
+        logical_global = dense_shared + local_expert * self.cfg.runtime.expert_parallel_size
+        return {
+            "local_total_params": local_total,
+            "local_expert_params": local_expert,
+            "shared_dense_params": dense_shared,
+            "logical_global_params": logical_global,
+        }
+
+    def _init_weights(self, module: nn.Module) -> None:
+        if isinstance(module, (nn.Linear, nn.Embedding)):
+            nn.init.normal_(module.weight, mean=0.0, std=self.cfg.model.init_std)
+            if isinstance(module, nn.Linear) and module.bias is not None:
+                nn.init.zeros_(module.bias)
+
+    def forward(self, input_ids: torch.Tensor, labels: torch.Tensor | None = None) -> dict[str, torch.Tensor | float]:
+        batch_size, seq_len = input_ids.shape
+        positions = torch.arange(seq_len, device=input_ids.device).unsqueeze(0).expand(batch_size, -1)
+        x = self.token_embed(input_ids) + self.pos_embed(positions)
+        x = self.dropout(x)
+
+        aux_total = x.new_zeros(())
+        dropped_total = 0.0
+        rerouted_total = 0.0
+        cv_values: list[float] = []
+        remote_ratio_values: list[float] = []
+        dispatch_cv_values: list[float] = []
+        estimated_a2a_bytes_total = 0.0
+
+        for block in self.blocks:
+            x, stats = block(x)
+            aux_total = aux_total + stats.router_aux_loss
+            dropped_total += stats.tokens_dropped
+            rerouted_total += stats.tokens_rerouted
+            if stats.load_balance_cv > 0.0:
+                cv_values.append(stats.load_balance_cv)
+            if stats.remote_dispatch_ratio > 0.0:
+                remote_ratio_values.append(stats.remote_dispatch_ratio)
+            if stats.dispatch_imbalance_cv > 0.0:
+                dispatch_cv_values.append(stats.dispatch_imbalance_cv)
+            estimated_a2a_bytes_total += stats.estimated_a2a_bytes
+
+        x = self.final_ln(x)
+        logits = self.lm_head(x)
+
+        result: dict[str, torch.Tensor | float] = {
+            "logits": logits,
+            "router_aux_loss": aux_total,
+            "tokens_dropped": dropped_total,
+            "tokens_rerouted": rerouted_total,
+            "load_balance_cv": float(sum(cv_values) / max(len(cv_values), 1)),
+            "remote_dispatch_ratio": float(sum(remote_ratio_values) / max(len(remote_ratio_values), 1)),
+            "dispatch_imbalance_cv": float(sum(dispatch_cv_values) / max(len(dispatch_cv_values), 1)),
+            "estimated_a2a_bytes": float(estimated_a2a_bytes_total),
+        }
+        if labels is not None:
+            lm_loss = F.cross_entropy(logits[:, :-1].reshape(-1, logits.size(-1)), labels[:, 1:].reshape(-1))
+            result["loss"] = lm_loss + aux_total
+            result["lm_loss"] = lm_loss
+        return result

@@ -1,0 +1,574 @@
+{
+  "api_set": "cuda",
+  "apis": [
+    {
+      "event_kind": "Unknown",
+      "name": "cudaDeviceSynchronize",
+      "parameters": [],
+      "return_type": "cudaError_t"
+    },
+    {
+      "event_kind": "Unknown",
+      "name": "cudaEventCreate",
+      "parameters": [
+        {
+          "declaration": "cudaEvent_t * event",
+          "name": "event",
+          "type": "cudaEvent_t *"
+        }
+      ],
+      "return_type": "cudaError_t"
+    },
+    {
+      "event_kind": "Unknown",
+      "name": "cudaEventCreateWithFlags",
+      "parameters": [
+        {
+          "declaration": "cudaEvent_t * event",
+          "name": "event",
+          "type": "cudaEvent_t *"
+        },
+        {
+          "declaration": "unsigned int flags",
+          "name": "flags",
+          "type": "unsigned int"
+        }
+      ],
+      "return_type": "cudaError_t"
+    },
+    {
+      "event_kind": "Unknown",
+      "name": "cudaEventDestroy",
+      "parameters": [
+        {
+          "declaration": "cudaEvent_t event",
+          "name": "event",
+          "type": "cudaEvent_t"
+        }
+      ],
+      "return_type": "cudaError_t"
+    },
+    {
+      "event_kind": "Unknown",
+      "name": "cudaEventElapsedTime",
+      "parameters": [
+        {
+          "declaration": "float * ms",
+          "name": "ms",
+          "type": "float *"
+        },
+        {
+          "declaration": "cudaEvent_t start",
+          "name": "start",
+          "type": "cudaEvent_t"
+        },
+        {
+          "declaration": "cudaEvent_t end",
+          "name": "end",
+          "type": "cudaEvent_t"
+        }
+      ],
+      "return_type": "cudaError_t"
+    },
+    {
+      "event_kind": "Unknown",
+      "name": "cudaEventQuery",
+      "parameters": [
+        {
+          "declaration": "cudaEvent_t event",
+          "name": "event",
+          "type": "cudaEvent_t"
+        }
+      ],
+      "return_type": "cudaError_t"
+    },
+    {
+      "event_kind": "Unknown",
+      "name": "cudaEventRecord",
+      "parameters": [
+        {
+          "declaration": "cudaEvent_t event",
+          "name": "event",
+          "type": "cudaEvent_t"
+        },
+        {
+          "declaration": "cudaStream_t stream",
+          "name": "stream",
+          "type": "cudaStream_t"
+        }
+      ],
+      "return_type": "cudaError_t"
+    },
+    {
+      "event_kind": "Unknown",
+      "name": "cudaEventRecordWithFlags",
+      "parameters": [
+        {
+          "declaration": "cudaEvent_t event",
+          "name": "event",
+          "type": "cudaEvent_t"
+        },
+        {
+          "declaration": "cudaStream_t stream",
+          "name": "stream",
+          "type": "cudaStream_t"
+        },
+        {
+          "declaration": "unsigned int flags",
+          "name": "flags",
+          "type": "unsigned int"
+        }
+      ],
+      "return_type": "cudaError_t"
+    },
+    {
+      "event_kind": "Unknown",
+      "name": "cudaEventSynchronize",
+      "parameters": [
+        {
+          "declaration": "cudaEvent_t event",
+          "name": "event",
+          "type": "cudaEvent_t"
+        }
+      ],
+      "return_type": "cudaError_t"
+    },
+    {
+      "event_kind": "Unknown",
+      "name": "cudaFree",
+      "parameters": [
+        {
+          "declaration": "void * devPtr",
+          "name": "devPtr",
+          "type": "void *"
+        }
+      ],
+      "return_type": "cudaError_t"
+    },
+    {
+      "event_kind": "Unknown",
+      "name": "cudaFreeAsync",
+      "parameters": [
+        {
+          "declaration": "void * devPtr",
+          "name": "devPtr",
+          "type": "void *"
+        },
+        {
+          "declaration": "cudaStream_t stream",
+          "name": "stream",
+          "type": "cudaStream_t"
+        }
+      ],
+      "return_type": "cudaError_t"
+    },
+    {
+      "event_kind": "Unknown",
+      "name": "cudaGetDevice",
+      "parameters": [
+        {
+          "declaration": "int * device",
+          "name": "device",
+          "type": "int *"
+        }
+      ],
+      "return_type": "cudaError_t"
+    },
+    {
+      "event_kind": "Unknown",
+      "name": "cudaGetDeviceCount",
+      "parameters": [
+        {
+          "declaration": "int * count",
+          "name": "count",
+          "type": "int *"
+        }
+      ],
+      "return_type": "cudaError_t"
+    },
+    {
+      "event_kind": "Unknown",
+      "name": "cudaGetLastError",
+      "parameters": [],
+      "return_type": "cudaError_t"
+    },
+    {
+      "event_kind": "Unknown",
+      "name": "cudaLaunchKernel",
+      "parameters": [
+        {
+          "declaration": "const void * func",
+          "name": "func",
+          "type": "const void *"
+        },
+        {
+          "declaration": "dim3 gridDim",
+          "name": "gridDim",
+          "type": "dim3"
+        },
+        {
+          "declaration": "dim3 blockDim",
+          "name": "blockDim",
+          "type": "dim3"
+        },
+        {
+          "declaration": "void ** args",
+          "name": "args",
+          "type": "void **"
+        },
+        {
+          "declaration": "size_t sharedMem",
+          "name": "sharedMem",
+          "type": "size_t"
+        },
+        {
+          "declaration": "cudaStream_t stream",
+          "name": "stream",
+          "type": "cudaStream_t"
+        }
+      ],
+      "return_type": "cudaError_t"
+    },
+    {
+      "event_kind": "Unknown",
+      "name": "__cudaRegisterFunction",
+      "parameters": [
+        {
+          "declaration": "void ** fatCubinHandle",
+          "name": "fatCubinHandle",
+          "type": "void **"
+        },
+        {
+          "declaration": "const char * hostFun",
+          "name": "hostFun",
+          "type": "const char *"
+        },
+        {
+          "declaration": "char * deviceFun",
+          "name": "deviceFun",
+          "type": "char *"
+        },
+        {
+          "declaration": "const char * deviceName",
+          "name": "deviceName",
+          "type": "const char *"
+        },
+        {
+          "declaration": "int thread_limit",
+          "name": "thread_limit",
+          "type": "int"
+        },
+        {
+          "declaration": "uint3 * tid",
+          "name": "tid",
+          "type": "uint3 *"
+        },
+        {
+          "declaration": "uint3 * bid",
+          "name": "bid",
+          "type": "uint3 *"
+        },
+        {
+          "declaration": "dim3 * bDim",
+          "name": "bDim",
+          "type": "dim3 *"
+        },
+        {
+          "declaration": "dim3 * gDim",
+          "name": "gDim",
+          "type": "dim3 *"
+        },
+        {
+          "declaration": "int * wSize",
+          "name": "wSize",
+          "type": "int *"
+        }
+      ],
+      "return_type": "void"
+    },
+    {
+      "event_kind": "Unknown",
+      "name": "cudaMalloc",
+      "parameters": [
+        {
+          "declaration": "void ** devPtr",
+          "name": "devPtr",
+          "type": "void **"
+        },
+        {
+          "declaration": "size_t size",
+          "name": "size",
+          "type": "size_t"
+        }
+      ],
+      "return_type": "cudaError_t"
+    },
+    {
+      "event_kind": "Unknown",
+      "name": "cudaMallocAsync",
+      "parameters": [
+        {
+          "declaration": "void ** devPtr",
+          "name": "devPtr",
+          "type": "void **"
+        },
+        {
+          "declaration": "size_t size",
+          "name": "size",
+          "type": "size_t"
+        },
+        {
+          "declaration": "cudaStream_t stream",
+          "name": "stream",
+          "type": "cudaStream_t"
+        }
+      ],
+      "return_type": "cudaError_t"
+    },
+    {
+      "event_kind": "Unknown",
+      "name": "cudaMemcpy",
+      "parameters": [
+        {
+          "declaration": "void * dst",
+          "name": "dst",
+          "type": "void *"
+        },
+        {
+          "declaration": "const void * src",
+          "name": "src",
+          "type": "const void *"
+        },
+        {
+          "declaration": "size_t count",
+          "name": "count",
+          "type": "size_t"
+        },
+        {
+          "declaration": "cudaMemcpyKind kind",
+          "name": "kind",
+          "type": "cudaMemcpyKind"
+        }
+      ],
+      "return_type": "cudaError_t"
+    },
+    {
+      "event_kind": "Unknown",
+      "name": "cudaMemcpyAsync",
+      "parameters": [
+        {
+          "declaration": "void * dst",
+          "name": "dst",
+          "type": "void *"
+        },
+        {
+          "declaration": "const void * src",
+          "name": "src",
+          "type": "const void *"
+        },
+        {
+          "declaration": "size_t count",
+          "name": "count",
+          "type": "size_t"
+        },
+        {
+          "declaration": "cudaMemcpyKind kind",
+          "name": "kind",
+          "type": "cudaMemcpyKind"
+        },
+        {
+          "declaration": "cudaStream_t stream",
+          "name": "stream",
+          "type": "cudaStream_t"
+        }
+      ],
+      "return_type": "cudaError_t"
+    },
+    {
+      "event_kind": "Unknown",
+      "name": "cudaMemGetInfo",
+      "parameters": [
+        {
+          "declaration": "size_t * free",
+          "name": "free",
+          "type": "size_t *"
+        },
+        {
+          "declaration": "size_t * total",
+          "name": "total",
+          "type": "size_t *"
+        }
+      ],
+      "return_type": "cudaError_t"
+    },
+    {
+      "event_kind": "Unknown",
+      "name": "cudaMemset",
+      "parameters": [
+        {
+          "declaration": "void * devPtr",
+          "name": "devPtr",
+          "type": "void *"
+        },
+        {
+          "declaration": "int value",
+          "name": "value",
+          "type": "int"
+        },
+        {
+          "declaration": "size_t count",
+          "name": "count",
+          "type": "size_t"
+        }
+      ],
+      "return_type": "cudaError_t"
+    },
+    {
+      "event_kind": "Unknown",
+      "name": "cudaMemsetAsync",
+      "parameters": [
+        {
+          "declaration": "void * devPtr",
+          "name": "devPtr",
+          "type": "void *"
+        },
+        {
+          "declaration": "int value",
+          "name": "value",
+          "type": "int"
+        },
+        {
+          "declaration": "size_t count",
+          "name": "count",
+          "type": "size_t"
+        },
+        {
+          "declaration": "cudaStream_t stream",
+          "name": "stream",
+          "type": "cudaStream_t"
+        }
+      ],
+      "return_type": "cudaError_t"
+    },
+    {
+      "event_kind": "Unknown",
+      "name": "cudaPeekAtLastError",
+      "parameters": [],
+      "return_type": "cudaError_t"
+    },
+    {
+      "event_kind": "Unknown",
+      "name": "cudaSetDevice",
+      "parameters": [
+        {
+          "declaration": "int device",
+          "name": "device",
+          "type": "int"
+        }
+      ],
+      "return_type": "cudaError_t"
+    },
+    {
+      "event_kind": "Unknown",
+      "name": "cudaStreamCreate",
+      "parameters": [
+        {
+          "declaration": "cudaStream_t * pStream",
+          "name": "pStream",
+          "type": "cudaStream_t *"
+        }
+      ],
+      "return_type": "cudaError_t"
+    },
+    {
+      "event_kind": "Unknown",
+      "name": "cudaStreamCreateWithFlags",
+      "parameters": [
+        {
+          "declaration": "cudaStream_t * pStream",
+          "name": "pStream",
+          "type": "cudaStream_t *"
+        },
+        {
+          "declaration": "unsigned int flags",
+          "name": "flags",
+          "type": "unsigned int"
+        }
+      ],
+      "return_type": "cudaError_t"
+    },
+    {
+      "event_kind": "Unknown",
+      "name": "cudaStreamCreateWithPriority",
+      "parameters": [
+        {
+          "declaration": "cudaStream_t * pStream",
+          "name": "pStream",
+          "type": "cudaStream_t *"
+        },
+        {
+          "declaration": "unsigned int flags",
+          "name": "flags",
+          "type": "unsigned int"
+        },
+        {
+          "declaration": "int priority",
+          "name": "priority",
+          "type": "int"
+        }
+      ],
+      "return_type": "cudaError_t"
+    },
+    {
+      "event_kind": "Unknown",
+      "name": "cudaStreamDestroy",
+      "parameters": [
+        {
+          "declaration": "cudaStream_t stream",
+          "name": "stream",
+          "type": "cudaStream_t"
+        }
+      ],
+      "return_type": "cudaError_t"
+    },
+    {
+      "event_kind": "Unknown",
+      "name": "cudaStreamSynchronize",
+      "parameters": [
+        {
+          "declaration": "cudaStream_t stream",
+          "name": "stream",
+          "type": "cudaStream_t"
+        }
+      ],
+      "return_type": "cudaError_t"
+    },
+    {
+      "event_kind": "Unknown",
+      "name": "cudaStreamWaitEvent",
+      "parameters": [
+        {
+          "declaration": "cudaStream_t stream",
+          "name": "stream",
+          "type": "cudaStream_t"
+        },
+        {
+          "declaration": "cudaEvent_t event",
+          "name": "event",
+          "type": "cudaEvent_t"
+        },
+        {
+          "declaration": "unsigned int flags",
+          "name": "flags",
+          "type": "unsigned int"
+        }
+      ],
+      "return_type": "cudaError_t"
+    }
+  ],
+  "includes": [
+    "\"lowlevel/interface/wrapper_template.hpp\"",
+    "\"cuda_stubs/cuda_runtime.h\""
+  ],
+  "output": "generated/cuda_wrappers.cpp"
+}

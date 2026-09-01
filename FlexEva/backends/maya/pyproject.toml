@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "flexsim-compose"
+version = "0.1.0"
+description = "FlexSim research workspace with unified Python packages and native integrations."
+requires-python = ">=3.10"
+
+[tool.setuptools]
+package-dir = {"" = "python"}
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["python"]
+
+[tool.setuptools.package-data]
+bindlayer = ["*.pyi"]
+flexsim = [
+  "models/*.json",
+  "review_service/templates/*.html",
+  "review_service/static/*.css",
+]

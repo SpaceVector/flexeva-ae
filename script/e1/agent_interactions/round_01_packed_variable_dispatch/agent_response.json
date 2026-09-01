@@ -1,0 +1,28 @@
+{
+  "round_dir": "round_01_packed_variable_dispatch",
+  "previous_round_dir": "round_00_baseline",
+  "model": "qwen/qwen3.5-plus-02-15",
+  "summary": "Replace padded all-to-all dispatch with packed variable-length dispatch to reduce communication overhead",
+  "rationale": [
+    "Current padded dispatch wastes bandwidth sending empty slots (capacity * num_experts * ep_size)",
+    "Remote dispatch ratio is 0.9923, so reducing per-token communication is high leverage",
+    "Packed dispatch sends only assigned tokens, reducing estimated_a2a_bytes proportionally to sparsity",
+    "Preserves top-2 routing semantics and all benchmark metrics"
+  ],
+  "expected_effects": [
+    "Reduce step_time_s by 15-25% through lower all-to-all communication volume",
+    "Reduce estimated_a2a_bytes proportionally to token assignment sparsity",
+    "Maintain identical tokens_dropped, tokens_rerouted, and load_balance_cv metrics",
+    "Keep remote_dispatch_ratio semantics unchanged"
+  ],
+  "risks": [
+    "Packed dispatch requires careful index tracking for scatter/gather correctness",
+    "May expose load imbalance if expert capacity varies significantly",
+    "Additional sorting overhead for token ordering (typically negligible vs communication savings)"
+  ],
+  "changed_files": [
+    {
+      "path": "tests/workloads/historical_sparse_moe/model.py"
+    }
+  ]
+}

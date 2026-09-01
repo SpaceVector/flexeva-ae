@@ -1,0 +1,620 @@
+{
+    "api_set": "cublas",
+    "apis": [
+        {
+            "event_kind": "Unknown",
+            "name": "cublasCreate_v2",
+            "parameters": [
+                {
+                    "declaration": "cublasHandle_t * handle",
+                    "name": "handle",
+                    "type": "cublasHandle_t *"
+                }
+            ],
+            "return_type": "cublasStatus_t"
+        },
+        {
+            "event_kind": "Unknown",
+            "name": "cublasDestroy_v2",
+            "parameters": [
+                {
+                    "declaration": "cublasHandle_t handle",
+                    "name": "handle",
+                    "type": "cublasHandle_t"
+                }
+            ],
+            "return_type": "cublasStatus_t"
+        },
+        {
+            "event_kind": "Unknown",
+            "name": "cublasDgemm_v2",
+            "parameters": [
+                {
+                    "declaration": "cublasHandle_t handle",
+                    "name": "handle",
+                    "type": "cublasHandle_t"
+                },
+                {
+                    "declaration": "cublasOperation_t transa",
+                    "name": "transa",
+                    "type": "cublasOperation_t"
+                },
+                {
+                    "declaration": "cublasOperation_t transb",
+                    "name": "transb",
+                    "type": "cublasOperation_t"
+                },
+                {
+                    "declaration": "int m",
+                    "name": "m",
+                    "type": "int"
+                },
+                {
+                    "declaration": "int n",
+                    "name": "n",
+                    "type": "int"
+                },
+                {
+                    "declaration": "int k",
+                    "name": "k",
+                    "type": "int"
+                },
+                {
+                    "declaration": "const double * alpha",
+                    "name": "alpha",
+                    "type": "const double *"
+                },
+                {
+                    "declaration": "const double * A",
+                    "name": "A",
+                    "type": "const double *"
+                },
+                {
+                    "declaration": "int lda",
+                    "name": "lda",
+                    "type": "int"
+                },
+                {
+                    "declaration": "const double * B",
+                    "name": "B",
+                    "type": "const double *"
+                },
+                {
+                    "declaration": "int ldb",
+                    "name": "ldb",
+                    "type": "int"
+                },
+                {
+                    "declaration": "const double * beta",
+                    "name": "beta",
+                    "type": "const double *"
+                },
+                {
+                    "declaration": "double * C",
+                    "name": "C",
+                    "type": "double *"
+                },
+                {
+                    "declaration": "int ldc",
+                    "name": "ldc",
+                    "type": "int"
+                }
+            ],
+            "return_type": "cublasStatus_t"
+        },
+        {
+            "event_kind": "Unknown",
+            "name": "cublasGemmEx",
+            "parameters": [
+                {
+                    "declaration": "cublasHandle_t handle",
+                    "name": "handle",
+                    "type": "cublasHandle_t"
+                },
+                {
+                    "declaration": "cublasOperation_t transa",
+                    "name": "transa",
+                    "type": "cublasOperation_t"
+                },
+                {
+                    "declaration": "cublasOperation_t transb",
+                    "name": "transb",
+                    "type": "cublasOperation_t"
+                },
+                {
+                    "declaration": "int m",
+                    "name": "m",
+                    "type": "int"
+                },
+                {
+                    "declaration": "int n",
+                    "name": "n",
+                    "type": "int"
+                },
+                {
+                    "declaration": "int k",
+                    "name": "k",
+                    "type": "int"
+                },
+                {
+                    "declaration": "const void * alpha",
+                    "name": "alpha",
+                    "type": "const void *"
+                },
+                {
+                    "declaration": "const void * A",
+                    "name": "A",
+                    "type": "const void *"
+                },
+                {
+                    "declaration": "cudaDataType_t Atype",
+                    "name": "Atype",
+                    "type": "cudaDataType_t"
+                },
+                {
+                    "declaration": "int lda",
+                    "name": "lda",
+                    "type": "int"
+                },
+                {
+                    "declaration": "const void * B",
+                    "name": "B",
+                    "type": "const void *"
+                },
+                {
+                    "declaration": "cudaDataType_t Btype",
+                    "name": "Btype",
+                    "type": "cudaDataType_t"
+                },
+                {
+                    "declaration": "int ldb",
+                    "name": "ldb",
+                    "type": "int"
+                },
+                {
+                    "declaration": "const void * beta",
+                    "name": "beta",
+                    "type": "const void *"
+                },
+                {
+                    "declaration": "void * C",
+                    "name": "C",
+                    "type": "void *"
+                },
+                {
+                    "declaration": "cudaDataType_t Ctype",
+                    "name": "Ctype",
+                    "type": "cudaDataType_t"
+                },
+                {
+                    "declaration": "int ldc",
+                    "name": "ldc",
+                    "type": "int"
+                },
+                {
+                    "declaration": "cublasComputeType_t computeType",
+                    "name": "computeType",
+                    "type": "cublasComputeType_t"
+                },
+                {
+                    "declaration": "cublasGemmAlgo_t algo",
+                    "name": "algo",
+                    "type": "cublasGemmAlgo_t"
+                }
+            ],
+            "return_type": "cublasStatus_t"
+        },
+        {
+            "event_kind": "Unknown",
+            "name": "cublasGemmStridedBatchedEx",
+            "parameters": [
+                {
+                    "declaration": "cublasHandle_t handle",
+                    "name": "handle",
+                    "type": "cublasHandle_t"
+                },
+                {
+                    "declaration": "cublasOperation_t transa",
+                    "name": "transa",
+                    "type": "cublasOperation_t"
+                },
+                {
+                    "declaration": "cublasOperation_t transb",
+                    "name": "transb",
+                    "type": "cublasOperation_t"
+                },
+                {
+                    "declaration": "int m",
+                    "name": "m",
+                    "type": "int"
+                },
+                {
+                    "declaration": "int n",
+                    "name": "n",
+                    "type": "int"
+                },
+                {
+                    "declaration": "int k",
+                    "name": "k",
+                    "type": "int"
+                },
+                {
+                    "declaration": "const void * alpha",
+                    "name": "alpha",
+                    "type": "const void *"
+                },
+                {
+                    "declaration": "const void * A",
+                    "name": "A",
+                    "type": "const void *"
+                },
+                {
+                    "declaration": "cudaDataType_t Atype",
+                    "name": "Atype",
+                    "type": "cudaDataType_t"
+                },
+                {
+                    "declaration": "int lda",
+                    "name": "lda",
+                    "type": "int"
+                },
+                {
+                    "declaration": "long long strideA",
+                    "name": "strideA",
+                    "type": "long long"
+                },
+                {
+                    "declaration": "const void * B",
+                    "name": "B",
+                    "type": "const void *"
+                },
+                {
+                    "declaration": "cudaDataType_t Btype",
+                    "name": "Btype",
+                    "type": "cudaDataType_t"
+                },
+                {
+                    "declaration": "int ldb",
+                    "name": "ldb",
+                    "type": "int"
+                },
+                {
+                    "declaration": "long long strideB",
+                    "name": "strideB",
+                    "type": "long long"
+                },
+                {
+                    "declaration": "const void * beta",
+                    "name": "beta",
+                    "type": "const void *"
+                },
+                {
+                    "declaration": "void * C",
+                    "name": "C",
+                    "type": "void *"
+                },
+                {
+                    "declaration": "cudaDataType_t Ctype",
+                    "name": "Ctype",
+                    "type": "cudaDataType_t"
+                },
+                {
+                    "declaration": "int ldc",
+                    "name": "ldc",
+                    "type": "int"
+                },
+                {
+                    "declaration": "long long strideC",
+                    "name": "strideC",
+                    "type": "long long"
+                },
+                {
+                    "declaration": "int batchCount",
+                    "name": "batchCount",
+                    "type": "int"
+                },
+                {
+                    "declaration": "cublasComputeType_t computeType",
+                    "name": "computeType",
+                    "type": "cublasComputeType_t"
+                },
+                {
+                    "declaration": "cublasGemmAlgo_t algo",
+                    "name": "algo",
+                    "type": "cublasGemmAlgo_t"
+                }
+            ],
+            "return_type": "cublasStatus_t"
+        },
+        {
+            "event_kind": "Unknown",
+            "name": "cublasGetStream_v2",
+            "parameters": [
+                {
+                    "declaration": "cublasHandle_t handle",
+                    "name": "handle",
+                    "type": "cublasHandle_t"
+                },
+                {
+                    "declaration": "cudaStream_t * streamId",
+                    "name": "streamId",
+                    "type": "cudaStream_t *"
+                }
+            ],
+            "return_type": "cublasStatus_t"
+        },
+        {
+            "event_kind": "Unknown",
+            "name": "cublasHgemm",
+            "parameters": [
+                {
+                    "declaration": "cublasHandle_t handle",
+                    "name": "handle",
+                    "type": "cublasHandle_t"
+                },
+                {
+                    "declaration": "cublasOperation_t transa",
+                    "name": "transa",
+                    "type": "cublasOperation_t"
+                },
+                {
+                    "declaration": "cublasOperation_t transb",
+                    "name": "transb",
+                    "type": "cublasOperation_t"
+                },
+                {
+                    "declaration": "int m",
+                    "name": "m",
+                    "type": "int"
+                },
+                {
+                    "declaration": "int n",
+                    "name": "n",
+                    "type": "int"
+                },
+                {
+                    "declaration": "int k",
+                    "name": "k",
+                    "type": "int"
+                },
+                {
+                    "declaration": "const void * alpha",
+                    "name": "alpha",
+                    "type": "const void *"
+                },
+                {
+                    "declaration": "const void * A",
+                    "name": "A",
+                    "type": "const void *"
+                },
+                {
+                    "declaration": "int lda",
+                    "name": "lda",
+                    "type": "int"
+                },
+                {
+                    "declaration": "const void * B",
+                    "name": "B",
+                    "type": "const void *"
+                },
+                {
+                    "declaration": "int ldb",
+                    "name": "ldb",
+                    "type": "int"
+                },
+                {
+                    "declaration": "const void * beta",
+                    "name": "beta",
+                    "type": "const void *"
+                },
+                {
+                    "declaration": "void * C",
+                    "name": "C",
+                    "type": "void *"
+                },
+                {
+                    "declaration": "int ldc",
+                    "name": "ldc",
+                    "type": "int"
+                }
+            ],
+            "return_type": "cublasStatus_t"
+        },
+        {
+            "event_kind": "Unknown",
+            "name": "cublasSetStream_v2",
+            "parameters": [
+                {
+                    "declaration": "cublasHandle_t handle",
+                    "name": "handle",
+                    "type": "cublasHandle_t"
+                },
+                {
+                    "declaration": "cudaStream_t streamId",
+                    "name": "streamId",
+                    "type": "cudaStream_t"
+                }
+            ],
+            "return_type": "cublasStatus_t"
+        },
+        {
+            "event_kind": "Unknown",
+            "name": "cublasSgemmStridedBatched",
+            "parameters": [
+                {
+                    "declaration": "cublasHandle_t handle",
+                    "name": "handle",
+                    "type": "cublasHandle_t"
+                },
+                {
+                    "declaration": "cublasOperation_t transa",
+                    "name": "transa",
+                    "type": "cublasOperation_t"
+                },
+                {
+                    "declaration": "cublasOperation_t transb",
+                    "name": "transb",
+                    "type": "cublasOperation_t"
+                },
+                {
+                    "declaration": "int m",
+                    "name": "m",
+                    "type": "int"
+                },
+                {
+                    "declaration": "int n",
+                    "name": "n",
+                    "type": "int"
+                },
+                {
+                    "declaration": "int k",
+                    "name": "k",
+                    "type": "int"
+                },
+                {
+                    "declaration": "const float * alpha",
+                    "name": "alpha",
+                    "type": "const float *"
+                },
+                {
+                    "declaration": "const float * A",
+                    "name": "A",
+                    "type": "const float *"
+                },
+                {
+                    "declaration": "int lda",
+                    "name": "lda",
+                    "type": "int"
+                },
+                {
+                    "declaration": "long long strideA",
+                    "name": "strideA",
+                    "type": "long long"
+                },
+                {
+                    "declaration": "const float * B",
+                    "name": "B",
+                    "type": "const float *"
+                },
+                {
+                    "declaration": "int ldb",
+                    "name": "ldb",
+                    "type": "int"
+                },
+                {
+                    "declaration": "long long strideB",
+                    "name": "strideB",
+                    "type": "long long"
+                },
+                {
+                    "declaration": "const float * beta",
+                    "name": "beta",
+                    "type": "const float *"
+                },
+                {
+                    "declaration": "float * C",
+                    "name": "C",
+                    "type": "float *"
+                },
+                {
+                    "declaration": "int ldc",
+                    "name": "ldc",
+                    "type": "int"
+                },
+                {
+                    "declaration": "long long strideC",
+                    "name": "strideC",
+                    "type": "long long"
+                },
+                {
+                    "declaration": "int batchCount",
+                    "name": "batchCount",
+                    "type": "int"
+                }
+            ],
+            "return_type": "cublasStatus_t"
+        },
+        {
+            "event_kind": "Unknown",
+            "name": "cublasSgemm_v2",
+            "parameters": [
+                {
+                    "declaration": "cublasHandle_t handle",
+                    "name": "handle",
+                    "type": "cublasHandle_t"
+                },
+                {
+                    "declaration": "cublasOperation_t transa",
+                    "name": "transa",
+                    "type": "cublasOperation_t"
+                },
+                {
+                    "declaration": "cublasOperation_t transb",
+                    "name": "transb",
+                    "type": "cublasOperation_t"
+                },
+                {
+                    "declaration": "int m",
+                    "name": "m",
+                    "type": "int"
+                },
+                {
+                    "declaration": "int n",
+                    "name": "n",
+                    "type": "int"
+                },
+                {
+                    "declaration": "int k",
+                    "name": "k",
+                    "type": "int"
+                },
+                {
+                    "declaration": "const float * alpha",
+                    "name": "alpha",
+                    "type": "const float *"
+                },
+                {
+                    "declaration": "const float * A",
+                    "name": "A",
+                    "type": "const float *"
+                },
+                {
+                    "declaration": "int lda",
+                    "name": "lda",
+                    "type": "int"
+                },
+                {
+                    "declaration": "const float * B",
+                    "name": "B",
+                    "type": "const float *"
+                },
+                {
+                    "declaration": "int ldb",
+                    "name": "ldb",
+                    "type": "int"
+                },
+                {
+                    "declaration": "const float * beta",
+                    "name": "beta",
+                    "type": "const float *"
+                },
+                {
+                    "declaration": "float * C",
+                    "name": "C",
+                    "type": "float *"
+                },
+                {
+                    "declaration": "int ldc",
+                    "name": "ldc",
+                    "type": "int"
+                }
+            ],
+            "return_type": "cublasStatus_t"
+        }
+    ],
+    "includes": [
+        "\"lowlevel/interface/wrapper_template.hpp\"",
+        "\"cuda_stubs/cublas_v2.h\""
+    ],
+    "output": "generated/cublas_wrappers.cpp"
+}

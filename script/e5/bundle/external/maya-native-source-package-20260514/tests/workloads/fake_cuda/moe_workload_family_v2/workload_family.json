@@ -1,0 +1,289 @@
+{
+  "family_id": "moe_workload_family_v2",
+  "workload_kind": "routed_moe_training",
+  "title": "Routed MoE workload family with goal-directed code-semantic candidate generation",
+  "live_example": {
+    "loop_engine": "enhanced_maya_semantic",
+    "summary": "The optimizer loop runs inside an enhanced Maya-like evaluator that combines SPMD-to-SPSD semantic dry-run, high-fidelity replay structure, and runtime bottleneck diagnosis.",
+    "real_cluster_role": {
+      "summary": "Real hardware provides least-required grounding and cluster adaptation rather than serving as the main optimization loop.",
+      "uses": [
+        "minimum_hardware_grounding",
+        "cluster_adaptation_calibration",
+        "timing_calibration",
+        "selected_winner_validation",
+        "uncertainty_escalation"
+      ]
+    }
+  },
+  "user_requirement": {
+    "task": "train one routed top-k MoE step family under a fixed distributed setup",
+    "model": {
+      "hidden_size": 128,
+      "num_layers": 2,
+      "num_experts": 8,
+      "top_k": 2
+    },
+    "training_step": {
+      "batch_size": 2,
+      "seq_len": 64,
+      "micro_batches": 2,
+      "recompute": true
+    },
+    "cluster": {
+      "min_nodes": 2,
+      "min_gpus": 2,
+      "recommended_targets": [
+        "tc30033",
+        "tc30031"
+      ],
+      "transport": "nccl+ib",
+      "notes": "Tempcloud is only a reduced prototype environment. The paper-facing 128-GPU story should use enhanced semantic dry-run plus the least hardware subset needed to recover value-sensitive and hardware-sensitive behavior."
+    }
+  },
+  "anchor": {
+    "candidate_id": "anchor_baseline",
+    "entry": "/home/muxi/test-sim/tests/workloads/fake_cuda/moe_routed_family_v1/anchor_baseline.py",
+    "summary": "First-pass routed top-k MoE training implementation with capacity-based dropping and contiguous expert ownership."
+  },
+  "optimization_goals": [
+    {
+      "goal_id": "straggler_load_skew",
+      "priority": 1,
+      "summary": "Reduce hot experts, token dropping, and long-tail skew in routed expert demand.",
+      "signals": [
+        "expert_counts_cv",
+        "tokens_dropped",
+        "dispatch_pressure"
+      ]
+    },
+    {
+      "goal_id": "communication_critical_path",
+      "priority": 2,
+      "summary": "Shorten the communication-heavy critical path by changing dispatch, chunking, and synchronization behavior.",
+      "signals": [
+        "collective_wait_spans",
+        "overlap_region_share",
+        "critical_path_sync_density"
+      ]
+    },
+    {
+      "goal_id": "topology_locality",
+      "priority": 3,
+      "summary": "Improve locality and interconnect efficiency when skew is acceptable but remote communication remains wasteful.",
+      "signals": [
+        "remote_token_fraction",
+        "inter_node_dispatch_share",
+        "idle_ratio"
+      ]
+    }
+  ],
+  "round_specs": [
+    {
+      "round_id": "round_load_skew_r1",
+      "goal_id": "straggler_load_skew",
+      "parallel_budget": 4,
+      "candidate_order": [
+        "overflow_reroute",
+        "layout_striped",
+        "local_backup_reroute",
+        "balanced_secondary_route"
+      ]
+    },
+    {
+      "round_id": "round_comm_critical_path_r2",
+      "goal_id": "communication_critical_path",
+      "parallel_budget": 4,
+      "candidate_order": [
+        "locality_first_dispatch",
+        "staged_priority_dispatch",
+        "recompute_eager_sync",
+        "staggered_microbatch_overlap"
+      ]
+    },
+    {
+      "round_id": "round_topology_locality_r3",
+      "goal_id": "topology_locality",
+      "parallel_budget": 4,
+      "candidate_order": [
+        "local_expert_bias",
+        "near_tie_locality_router",
+        "local_remote_staged_dispatch",
+        "local_backup_reroute"
+      ]
+    }
+  ],
+  "candidates": [
+    {
+      "candidate_id": "anchor_baseline",
+      "parent": null,
+      "goal_ids": [
+        "anchor"
+      ],
+      "change_surface": "anchor",
+      "entry": "/home/muxi/test-sim/tests/workloads/fake_cuda/moe_routed_family_v1/anchor_baseline.py",
+      "semantic_diffs": [
+        "capacity-based overflow dropping",
+        "contiguous expert ownership",
+        "token-order dispatch packing"
+      ]
+    },
+    {
+      "candidate_id": "overflow_reroute",
+      "parent": "anchor_baseline",
+      "goal_ids": [
+        "straggler_load_skew"
+      ],
+      "change_surface": "code_semantic",
+      "entry": "/home/muxi/test-sim/tests/workloads/fake_cuda/moe_routed_family_v1/overflow_reroute.py",
+      "semantic_diffs": [
+        "overflow tokens rerouted to lightest expert",
+        "reduced drop pressure",
+        "changed expert occupancy evolution"
+      ]
+    },
+    {
+      "candidate_id": "layout_striped",
+      "parent": "anchor_baseline",
+      "goal_ids": [
+        "straggler_load_skew",
+        "topology_locality"
+      ],
+      "change_surface": "runtime_control",
+      "entry": "/home/muxi/test-sim/tests/workloads/fake_cuda/moe_routed_family_v1/layout_striped.py",
+      "semantic_diffs": [
+        "striped expert ownership",
+        "different remote/local token mix per EP rank"
+      ]
+    },
+    {
+      "candidate_id": "locality_first_dispatch",
+      "parent": "anchor_baseline",
+      "goal_ids": [
+        "communication_critical_path",
+        "topology_locality"
+      ],
+      "change_surface": "code_semantic",
+      "entry": "/home/muxi/test-sim/tests/workloads/fake_cuda/moe_routed_family_v1/locality_first_dispatch.py",
+      "semantic_diffs": [
+        "destination buffers packed by routing density",
+        "changed comm/compute overlap opportunities",
+        "different collective burst shape"
+      ]
+    },
+    {
+      "candidate_id": "recompute_eager_sync",
+      "parent": "anchor_baseline",
+      "goal_ids": [
+        "communication_critical_path"
+      ],
+      "change_surface": "runtime_control",
+      "entry": "/home/muxi/test-sim/tests/workloads/fake_cuda/moe_routed_family_v1/recompute_eager_sync.py",
+      "semantic_diffs": [
+        "recompute removed",
+        "single microbatch eager synchronization",
+        "different memory-vs-bubble tradeoff"
+      ]
+    },
+    {
+      "candidate_id": "local_backup_reroute",
+      "parent": "anchor_baseline",
+      "goal_ids": [
+        "straggler_load_skew",
+        "topology_locality"
+      ],
+      "change_surface": "code_semantic",
+      "entry": "/home/muxi/test-sim/tests/workloads/fake_cuda/moe_routed_family_v1/local_backup_reroute.py",
+      "semantic_diffs": [
+        "overflow tokens first spill to local experts",
+        "local backup routing before remote fallback",
+        "changed hot-spot relief and locality tradeoff"
+      ]
+    },
+    {
+      "candidate_id": "balanced_secondary_route",
+      "parent": "anchor_baseline",
+      "goal_ids": [
+        "straggler_load_skew"
+      ],
+      "change_surface": "code_semantic",
+      "entry": "/home/muxi/test-sim/tests/workloads/fake_cuda/moe_routed_family_v1/balanced_secondary_route.py",
+      "semantic_diffs": [
+        "prefer second selected expert when primary is already hotter",
+        "online skew-aware secondary routing",
+        "reduced hot-expert concentration without global reroute"
+      ]
+    },
+    {
+      "candidate_id": "staged_priority_dispatch",
+      "parent": "anchor_baseline",
+      "goal_ids": [
+        "communication_critical_path"
+      ],
+      "change_surface": "code_semantic",
+      "entry": "/home/muxi/test-sim/tests/workloads/fake_cuda/moe_routed_family_v1/staged_priority_dispatch.py",
+      "semantic_diffs": [
+        "expert-parallel traffic split into head and tail stages",
+        "priority-first communication burst",
+        "different comm/compute critical-path shape"
+      ]
+    },
+    {
+      "candidate_id": "staggered_microbatch_overlap",
+      "parent": "anchor_baseline",
+      "goal_ids": [
+        "communication_critical_path"
+      ],
+      "change_surface": "runtime_control",
+      "entry": "/home/muxi/test-sim/tests/workloads/fake_cuda/moe_routed_family_v1/staggered_microbatch_overlap.py",
+      "semantic_diffs": [
+        "more microbatches per step",
+        "smaller staged expert-parallel bursts",
+        "different overlap and synchronization window"
+      ]
+    },
+    {
+      "candidate_id": "local_expert_bias",
+      "parent": "anchor_baseline",
+      "goal_ids": [
+        "topology_locality"
+      ],
+      "change_surface": "code_semantic",
+      "entry": "/home/muxi/test-sim/tests/workloads/fake_cuda/moe_routed_family_v1/local_expert_bias.py",
+      "semantic_diffs": [
+        "router logits biased toward current-rank experts",
+        "fewer near-tie remote assignments",
+        "different local-vs-remote token mix"
+      ]
+    },
+    {
+      "candidate_id": "near_tie_locality_router",
+      "parent": "anchor_baseline",
+      "goal_ids": [
+        "topology_locality"
+      ],
+      "change_surface": "code_semantic",
+      "entry": "/home/muxi/test-sim/tests/workloads/fake_cuda/moe_routed_family_v1/near_tie_locality_router.py",
+      "semantic_diffs": [
+        "prefer local experts only under near-tie score conditions",
+        "locality-aware tie-breaking instead of global bias",
+        "preserves routing more aggressively than always-on locality bias"
+      ]
+    },
+    {
+      "candidate_id": "local_remote_staged_dispatch",
+      "parent": "anchor_baseline",
+      "goal_ids": [
+        "communication_critical_path",
+        "topology_locality"
+      ],
+      "change_surface": "code_semantic",
+      "entry": "/home/muxi/test-sim/tests/workloads/fake_cuda/moe_routed_family_v1/local_remote_staged_dispatch.py",
+      "semantic_diffs": [
+        "local-owner traffic exchanged before remote-owner traffic",
+        "separate local and remote dispatch bursts",
+        "different communication-path shape and locality profile"
+      ]
+    }
+  ]
+}

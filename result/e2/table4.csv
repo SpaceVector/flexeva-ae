@@ -1,0 +1,9 @@
+workload,case,world_size,logical_event_coverage,weighted_event_jaccard
+GPT,megatron_2p7b_8gpu,8,1.000000000,1.000000000
+GPT,megatron_18p4b_16gpu,16,0.999999207,0.999991883
+GPT,megatron_2p7b_16gpu_dp2,16,0.999986449,0.999951377
+GPT,megatron_18p4b_16gpu_dp2,16,1.000000447,0.999983795
+Routed-MoE,routed_moe_intra_group_0_1,16,1.000000000,1.000000000
+Routed-MoE,routed_moe_cross_group_0_8,16,1.000000000,1.000000000
+Routed-MoE,routed_moe_cross_group_0_15,16,1.000000000,1.000000000
+Routed-MoE,routed_moe_boundary_7_8,16,1.000000000,1.000000000

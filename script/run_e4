@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+PYTHON_BIN="${PYTHON_BIN:-python3}"
+MAYA_ROOT="${MAYA_ROOT:-$ROOT/FlexEva/backends/maya}"
+PROOT_BIN="${PROOT_BIN:-$ROOT/.deps/proot-5.3.1/bin/proot}"
+TABLE6_RESULT_ROOT="$ROOT/result/e4/generated/table6"
+TABLE6_TRACE_ROOT="$ROOT/trace/e4/table6"
+
+if [[ "$PYTHON_BIN" != */* ]]; then
+    PYTHON_BIN="$(command -v "$PYTHON_BIN" || true)"
+fi
+[[ -n "$PYTHON_BIN" ]] || { echo "run_e4: Python is unavailable" >&2; exit 2; }
+PYTHON_BIN="$(realpath -e "$PYTHON_BIN")"
+
+test -x "$MAYA_ROOT/fake-cuda/frun" || {
+    echo "missing fake-CUDA launcher: $MAYA_ROOT/fake-cuda/frun; run script/setup first" >&2
+    exit 2
+}
+test -x "$PROOT_BIN" || {
+    echo "missing PRoot: $PROOT_BIN; run script/setup first or set PROOT_BIN" >&2
+    exit 2
+}
+
+export PYTHONPATH="$ROOT/FlexEva/flexmaya_ras/src:$ROOT/script/e4/workload_generality${PYTHONPATH:+:$PYTHONPATH}"
+export FAKECUDA_TARGET_ENV_ROOT="${FAKECUDA_TARGET_ENV_ROOT:-$(cd -- "$(dirname -- "$PYTHON_BIN")/.." && pwd)}"
+
+"$PYTHON_BIN" "$ROOT/script/e4/workload_generality/measure_workload_generality.py" \
+    --out-dir "$TABLE6_RESULT_ROOT" \
+    --trace-root "$TABLE6_TRACE_ROOT" \
+    --maya-root "$MAYA_ROOT" \
+    --python "$PYTHON_BIN" \
+    --proot "$PROOT_BIN" \
+    --world-size 16 \
+    --local-device-count 8 \
+    --preset table4-lite \
+    --dtype bf16 \
+    --steps 1 \
+    --warmup-steps 0 \
+    --timing-repeats 11 \
+    --timing-warmups 2 \
+    --keep-raw-traces
+
+"$PYTHON_BIN" "$ROOT/script/e4/workload_generality/analyze_source_partitions.py" \
+    --result-json "$TABLE6_RESULT_ROOT/result.json"
+
+"$PYTHON_BIN" "$ROOT/script/e4/validate_results.py" --require-generated
+bash "$ROOT/script/e4/backend/run_backend_generality.sh"

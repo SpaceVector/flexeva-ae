@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+PYTHON_BIN="${PYTHON_BIN:-python3}"
+TRACE_ROOT="${E1_TRACE_ROOT:-$ROOT/large-cluster/e1/historical_sparse_moe}"
+MODE="${1:-trace}"
+
+[[ $# -le 1 ]] || { echo "usage: script/run_e1 [trace|real]" >&2; exit 2; }
+
+case "$MODE" in
+    trace)
+        "$PYTHON_BIN" "$ROOT/script/e1/validate_traces.py" --trace-root "$TRACE_ROOT"
+        "$PYTHON_BIN" "$ROOT/script/e1/derive_results.py"
+        "$PYTHON_BIN" "$ROOT/script/e1/plot_figure1.py"
+        ;;
+    real)
+        RESULT_ROOT="${E1_REAL_RESULT_ROOT:-$ROOT/result/e1/real}"
+        "$PYTHON_BIN" "$ROOT/script/e1/run_real.py" --result-root "$RESULT_ROOT"
+        if [[ "$FLEXMAYA_NODE_RANK" == "0" ]]; then
+            "$PYTHON_BIN" "$ROOT/script/e1/derive_results.py" \
+                --input "$RESULT_ROOT/trajectory.csv" --result-dir "$RESULT_ROOT" --real-measurements
+            "$PYTHON_BIN" "$ROOT/script/e1/plot_figure1.py" --result-dir "$RESULT_ROOT"
+        fi
+        ;;
+    -h|--help)
+        echo "usage: script/run_e1 [trace|real]"
+        ;;
+    *)
+        echo "run_e1: mode must be trace or real" >&2
+        exit 2
+        ;;
+esac
