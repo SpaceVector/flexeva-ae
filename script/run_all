@@ -5,6 +5,8 @@ ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 PYTHON_BIN="${PYTHON_BIN:-$ROOT/.venv/bin/python}"
 MODE="${1:-run}"
 
+[[ "$MODE" != run ]] || source "$ROOT/script/lib/ae_env.sh"
+
 usage() {
     echo "usage: script/run_all [run|audit]"
     echo "       RUN_ALL_DRY_RUN=1 script/run_all"

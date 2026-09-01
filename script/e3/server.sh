@@ -49,11 +49,7 @@ select_profile() {
     repo_root=$(git -C "$artifact_root" rev-parse --show-toplevel 2>/dev/null || true)
     default_python="${repo_root:-$artifact_root}/.venv/bin/python"
     expected_hostname=${AE_EXPECTED_HOSTNAME:-$actual_hostname}
-    node_root=${AE_NODE_ROOT:-}
-    [[ -n $node_root ]] || {
-        echo "set AE_NODE_ROOT to the experiment filesystem" >&2
-        return 2
-    }
+    node_root=${AE_NODE_ROOT:-$(cd -- "$artifact_root/.." && pwd -P)}
     export AE_EXPECTED_FILESYSTEM=${AE_EXPECTED_FILESYSTEM:-$(stat -f -c %T "$node_root")}
     [[ $AE_EXPECTED_FILESYSTEM != overlay && $AE_EXPECTED_FILESYSTEM != tmpfs ]] || {
         echo "artifact data cannot use filesystem type: $AE_EXPECTED_FILESYSTEM" >&2

@@ -4,6 +4,8 @@ set -euo pipefail
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 MODE="${1:-figure5}"
 
+[[ "$MODE" != figure5 ]] || source "$ROOT/script/lib/ae_env.sh"
+
 [[ $# -le 1 ]] || { echo "usage: script/run_e2 [figure5|table4]" >&2; exit 2; }
 case "$MODE" in
     figure5)

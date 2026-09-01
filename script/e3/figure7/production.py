@@ -430,8 +430,6 @@ def shell_join(command: list[object] | tuple[object, ...]) -> str:
 def peer_ssh(args: argparse.Namespace, remote_command: str) -> list[str]:
     return [
         "ssh",
-        "-F",
-        "/dev/null",
         "-o",
         "BatchMode=yes",
         "-o",

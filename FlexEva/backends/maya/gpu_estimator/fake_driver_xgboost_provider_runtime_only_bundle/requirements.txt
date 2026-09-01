@@ -1,2 +1,2 @@
-numpy
-xgboost
+numpy==2.2.6
+xgboost==3.2.0

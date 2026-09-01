@@ -11,25 +11,33 @@ compact result ledgers, and paper plots. FlexEva is included directly under
 
 For reviewers in mainland China, the repository is also mirrored at
 [`https://gitee.com/space-line-vector/flexeva-ae`](https://gitee.com/space-line-vector/flexeva-ae).
-Use the same mirror and commit on both nodes.
+Setup uses this mirror if it needs to create the peer checkout.
+
+## Primary reviewer entry
+
+```bash
+ssh -p 18405 ae_reviewer@182.92.117.22
+```
 
 ## Reviewer workflow
 
-The supplied AE environment already provides the two-node mapping, trusted SSH
-connection, checkout locations, experiment filesystems, and rendezvous
-settings. Reviewers do not need to enter or record any node-specific values.
+The supplied AE environment already provides mutual SSH access between the two
+nodes. Setup derives and stores the checkout, experiment-filesystem, and
+rendezvous settings. Reviewers do not need to enter or record any node-specific
+values.
 
-From the repository root on the designated coordinator, prepare both nodes
-with one command:
+After login, enter the coordinator checkout and prepare both nodes:
 
 ```bash
+cd flexeva-ae
 script/setup
 ```
 
-`script/setup` reads the preconfigured AE environment, verifies that both
-checkouts use the same commit, and performs the same uv-only installation on
-both nodes. No system Python installation is required. Continue only after it
-ends with `AE two-node setup: PASS`.
+`script/setup` reads the preconfigured AE environment, discovers the unique
+peer, creates its checkout when missing, verifies the exact commit, and
+performs the same uv-only installation on both nodes. No system Python
+installation is required. Continue only after the final line is
+`AE two-node setup: PASS`.
 
 Then reproduce all paper results with one command on the same coordinator:
 
@@ -63,7 +71,7 @@ data is written below `result/<experiment>/generated/`, `trace/`, and `plot/`.
 | `result/` | Checked-in result ledgers and locations for fresh outputs |
 | `plot/` | Checked-in Figures 1, 5, 6(a), 6(b), and 8 |
 | `trace/` | Runtime trace locations; raw generated rank traces are not committed |
-| `large-cluster/` | Links to externally mounted 32/64/128-GPU traces |
+| `large-cluster/` | External trace links and the independent Figure 5 estimator |
 
 The checked-in evidence covers:
 

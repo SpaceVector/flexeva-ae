@@ -14,6 +14,6 @@ Do not replace them with retained CSV values or small-machine runs. The 8- and
 16-GPU points are fresh native CUDA/NCCL captures and therefore live under
 [`trace/e2/figure5/`](../../trace/e2/README.md), not here.
 
-The evaluator also needs the independently trained estimator JSON. Set
-`FIGURE5_ESTIMATOR_MODEL=/path/to/estimator.json`, or provide it as
-`large-cluster/e2/estimator.json`.
+The independently trained estimator used by the evaluator is included as
+`estimator.json`. `FIGURE5_ESTIMATOR_MODEL` can select another independent
+model when reproducing the experiment in a different environment.

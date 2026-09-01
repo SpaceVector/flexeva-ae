@@ -7,14 +7,17 @@ EXPERIMENT="${1:-figure6}"
 case "$EXPERIMENT" in
     figure6)
         [[ $# -le 1 ]] || { echo "usage: script/run_e3 [figure6|figure7|figure8 [mode]]" >&2; exit 2; }
+        source "$ROOT/script/lib/ae_env.sh"
         exec bash "$ROOT/script/e3/figure6/run.sh"
         ;;
     figure7)
         [[ $# -le 2 ]] || { echo "usage: script/run_e3 [figure6|figure7 [mode]]" >&2; exit 2; }
+        [[ "${2:-run}" != run && "${2:-run}" != probe ]] || source "$ROOT/script/lib/ae_env.sh"
         exec bash "$ROOT/script/e3/figure7/run.sh" "${2:-run}"
         ;;
     figure8)
         [[ $# -le 2 ]] || { echo "usage: script/run_e3 figure8 [self-test|run|verify]" >&2; exit 2; }
+        [[ "${2:-run}" != run ]] || source "$ROOT/script/lib/ae_env.sh"
         exec bash "$ROOT/script/e3/figure8/run.sh" "${2:-run}"
         ;;
     *)

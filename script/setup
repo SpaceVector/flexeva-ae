@@ -18,34 +18,70 @@ PROOT_BIN="${PROOT_BIN:-$ROOT/.deps/proot-5.3.1/bin/proot}"
 }
 
 if [[ "$LOCAL_ONLY" == 0 ]]; then
+    # The AE coordinator has one concrete peer alias in its private SSH config.
+    source "$ROOT/script/lib/ae_env.sh"
     PEER_TARGET="${FLEXMAYA_PEER_TARGET:-}"
     PEER_PORT="${FLEXMAYA_PEER_PORT:-22}"
-    PEER_REPO_ROOT="${FLEXMAYA_PEER_REPO_ROOT:-}"
     [[ "$PEER_TARGET" =~ ^[A-Za-z0-9_.-]+(@[A-Za-z0-9_.:-]+)?$ ]] || {
-        echo "setup: set FLEXMAYA_PEER_TARGET to the node-1 SSH target" >&2
+        echo "setup: AE peer discovery returned an invalid SSH target" >&2
         exit 2
     }
     [[ "$PEER_PORT" =~ ^[0-9]+$ && "$PEER_PORT" -ge 1 && "$PEER_PORT" -le 65535 ]] || {
         echo "setup: FLEXMAYA_PEER_PORT must be in [1, 65535]" >&2
         exit 2
     }
-    [[ "$PEER_REPO_ROOT" =~ ^/[A-Za-z0-9._/-]+$ ]] || {
-        echo "setup: set FLEXMAYA_PEER_REPO_ROOT to an absolute node-1 checkout path" >&2
-        exit 2
-    }
     GIT_BIN="$(command -v git || true)"
     SSH_BIN="$(command -v ssh || true)"
     [[ -n "$GIT_BIN" ]] || { echo "setup: git is unavailable" >&2; exit 2; }
     [[ -n "$SSH_BIN" ]] || { echo "setup: ssh is unavailable" >&2; exit 2; }
-    SSH_ARGS=(-F /dev/null -o BatchMode=yes -o ConnectTimeout=10 \
+    SSH_ARGS=(-o BatchMode=yes -o ConnectTimeout=10 \
         -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -p "$PEER_PORT")
     LOCAL_COMMIT="$("$GIT_BIN" -C "$ROOT" rev-parse HEAD)"
+    PEER_HOME="$("$SSH_BIN" "${SSH_ARGS[@]}" "$PEER_TARGET" 'printf "%s\n" "$HOME"')"
+    PEER_REPO_ROOT="${FLEXMAYA_PEER_REPO_ROOT:-$PEER_HOME/flexeva-ae}"
+    [[ "$PEER_REPO_ROOT" =~ ^/[A-Za-z0-9._/-]+$ ]] || {
+        echo "setup: AE peer discovery returned an invalid checkout path" >&2
+        exit 2
+    }
+    if ! "$SSH_BIN" "${SSH_ARGS[@]}" "$PEER_TARGET" \
+        "test -d '$PEER_REPO_ROOT/.git'"; then
+        "$SSH_BIN" "${SSH_ARGS[@]}" "$PEER_TARGET" \
+            "test ! -e '$PEER_REPO_ROOT' && git clone --quiet https://gitee.com/space-line-vector/flexeva-ae.git '$PEER_REPO_ROOT'"
+    fi
     PEER_COMMIT="$("$SSH_BIN" "${SSH_ARGS[@]}" "$PEER_TARGET" \
         "git -C '$PEER_REPO_ROOT' rev-parse HEAD")"
     [[ "$PEER_COMMIT" == "$LOCAL_COMMIT" ]] || {
         echo "setup: node revisions differ: local=$LOCAL_COMMIT peer=$PEER_COMMIT" >&2
         exit 2
     }
+    PEER_HOSTNAME="$("$SSH_BIN" "${SSH_ARGS[@]}" "$PEER_TARGET" hostname)"
+    [[ "$PEER_HOSTNAME" != "$(hostname)" ]] || {
+        echo "setup: discovered SSH peer resolves to the coordinator" >&2
+        exit 2
+    }
+    if [[ -z "$FLEXMAYA_MASTER_ADDR" ]]; then
+        FLEXMAYA_MASTER_ADDR="$("$SSH_BIN" "${SSH_ARGS[@]}" "$PEER_TARGET" \
+            "awk 'tolower(\$1) == \"hostname\" {print \$2}' \"\$HOME/.ssh/config\"")"
+    fi
+    [[ "$FLEXMAYA_MASTER_ADDR" =~ ^[A-Za-z0-9_.:-]+$ ]] || {
+        echo "setup: AE reverse SSH discovery returned an invalid coordinator address" >&2
+        exit 2
+    }
+    FLEXMAYA_PEER_REPO_ROOT="$PEER_REPO_ROOT"
+    FLEXMAYA_PEER_NODE_ROOT="${FLEXMAYA_PEER_NODE_ROOT:-${PEER_REPO_ROOT%/*}}"
+    export FLEXMAYA_PEER_REPO_ROOT FLEXMAYA_PEER_NODE_ROOT
+    mkdir -p "$ROOT/.deps"
+    AE_PROFILE="$ROOT/.deps/ae_env.sh"
+    (
+        umask 077
+        {
+            for name in AE_NODE_ROOT FLEXMAYA_MASTER_ADDR FLEXMAYA_MASTER_PORT \
+                FLEXMAYA_CONTROL_PORT FLEXMAYA_PEER_TARGET FLEXMAYA_PEER_PORT \
+                FLEXMAYA_PEER_REPO_ROOT FLEXMAYA_PEER_NODE_ROOT; do
+                printf 'export %s=%q\n' "$name" "${!name}"
+            done
+        } >"$AE_PROFILE"
+    )
 fi
 
 if [[ ! -x "$UV_BIN" ]]; then
@@ -149,7 +185,7 @@ PYTHON_BIN="$PYTHON_BIN" MAYA_ROOT="$MAYA_ROOT" PROOT_BIN="$PROOT_BIN" \
 echo "AE node setup: PASS ($(hostname))"
 
 if [[ "$LOCAL_ONLY" == 0 ]]; then
-    echo "setup: preparing node 1 through $PEER_TARGET"
+    echo "setup: preparing peer node"
     "$SSH_BIN" "${SSH_ARGS[@]}" "$PEER_TARGET" \
         "cd '$PEER_REPO_ROOT' && FLEXEVA_SETUP_LOCAL_ONLY=1 ./script/setup"
     echo "AE two-node setup: PASS"

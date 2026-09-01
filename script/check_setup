@@ -45,7 +45,8 @@ for path in \
     "$MAYA_ROOT/build/lowlevel-interface/libcublas_real_wrappers.so" \
     "$MAYA_ROOT/build/lowlevel-interface/liblowlevel_interface_runtime.so" \
     "$MAYA_ROOT/CppEvent/libcpp_event_runtime_shared.so" \
-    "$MAYA_ROOT/CppEvent/libcpp_event_tls_shared.so"; do
+    "$MAYA_ROOT/CppEvent/libcpp_event_tls_shared.so" \
+    "$ROOT/large-cluster/e2/estimator.json"; do
     [[ -e "$path" ]] || fail "setup output is missing: $path"
 done
 [[ -x "$MAYA_ROOT/fake-cuda/frun" ]] || fail "FakeCUDA launcher is not executable"
@@ -56,12 +57,17 @@ TORCH_LIB="$($PYTHON_BIN -c 'from pathlib import Path; import torch; print(Path(
     || fail "PyTorch is unavailable"
 PYTHONPATH="$ROOT/FlexEva/flexmaya_ras/src:$MAYA_ROOT/python:$MAYA_ROOT/CppEvent:$MAYA_ROOT/gpu_estimator/fake_driver_xgboost_provider_runtime_only_bundle/src${PYTHONPATH:+:$PYTHONPATH}" \
 LD_LIBRARY_PATH="$MAYA_ROOT/CppEvent:$MAYA_ROOT/build/lowlevel-interface:$TORCH_LIB:$CUDA_LIB_DIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+FIGURE5_ESTIMATOR_MODEL="$ROOT/large-cluster/e2/estimator.json" \
+GPU_ESTIMATOR_BUNDLE="$MAYA_ROOT/gpu_estimator/fake_driver_xgboost_provider_runtime_only_bundle" \
     "$PYTHON_BIN" - <<'PY'
 import ctypes
+import os
 import platform
+import warnings
 
 import matplotlib
 import numpy
+import sklearn
 import torch
 import xgboost
 from fake_driver_xgboost_provider import FakeDriverXGBoostProvider
@@ -72,6 +78,9 @@ from flexsim.estimator import Estimator
 
 checks = {
     "Python": (platform.python_version(), "3.12.13"),
+    "NumPy": (numpy.__version__, "2.2.6"),
+    "scikit-learn": (sklearn.__version__, "1.7.2"),
+    "XGBoost": (xgboost.__version__, "3.2.0"),
     "PyTorch": (str(torch.__version__), "2.8.0+cu128"),
     "PyTorch CUDA": (torch.version.cuda, "12.8"),
 }
@@ -97,6 +106,23 @@ for library in ("libcuda.so.1", "libnccl.so.2", "libcublas.so.12"):
     except OSError as error:
         raise SystemExit(f"setup check: FAIL: cannot load {library}: {error}") from error
 FakeDriverXGBoostProvider()
+with warnings.catch_warnings():
+    warnings.simplefilter("ignore")
+    estimator = Estimator.load(
+        os.environ["FIGURE5_ESTIMATOR_MODEL"],
+        gpu_estimator_bundle=os.environ["GPU_ESTIMATOR_BUNDLE"],
+    )
+expected_providers = (
+    "trace_signature_stats",
+    "trace_learned_sklearn",
+    "gpu_estimator_xgboost",
+)
+if estimator.provider_names() != expected_providers:
+    raise SystemExit(
+        "setup check: FAIL: Figure 5 estimator providers="
+        f"{estimator.provider_names()}, expected {expected_providers}; "
+        f"diagnostics={estimator.provider_diagnostics()}"
+    )
 PY
 
 GPU_REPORT="$(nvidia-smi --query-gpu=index,name,memory.total --format=csv,noheader,nounits)" \
