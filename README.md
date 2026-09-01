@@ -43,7 +43,46 @@ E4 workload and backend generality instructions are in
 E5 candidate-lineage, RSS, and Table 8 instructions are in
 [`E5.md`](E5.md).
 
-## Server workflow
+## Setup
+
+### Retained-result audit
+
+The checked-in CSV and JSON results can be audited without GPUs:
+
+```bash
+python3 -m venv .venv
+. .venv/bin/activate
+python -m pip install -r requirements.txt
+script/run_all
+```
+
+### Fresh GPU experiments
+
+Fresh runs use the fixed AE server environment:
+
+- Linux x86-64 on GPFS, with at least 20 GiB free;
+- eight NVIDIA A100-SXM4-80GB GPUs with full NV12 topology per node;
+- Python 3.12.13 with development headers and a shared library;
+- PyTorch 2.8.0+cu128 and CUDA toolkit 12.8;
+- g++ 11.4.x, CMake 3.22.1, `git`, `make`, `protoc`, `mpicxx`, and
+  `nvidia-smi`.
+
+Place the checkout below the GPFS experiment root, select the CUDA-enabled
+Python environment, and run:
+
+```bash
+export PYTHON_BIN=/path/to/python3.12
+script/setup
+```
+
+`script/setup` installs the Python requirements, builds the FlexEva extension,
+FakeCUDA, CppEvent, the CUDA/NCCL/cuBLAS wrappers, and PRoot, then runs
+`script/check_setup`. A successful setup ends with `AE setup: PASS`.
+
+Run setup on every node from the same repository revision. E2 and E3 describe
+the additional peer SSH variables for two-node experiments.
+
+## Run
 
 Run from the repository root:
 
@@ -51,9 +90,8 @@ Run from the repository root:
 script/run_all
 ```
 
-`script/run_all` is a single-host retained-result audit. Fresh E1--E5 runs use
-different one-, two-, and 16-node setups; follow the corresponding
-`E1.md`--`E5.md` instructions and run `script/setup` where required.
+`script/run_all` is a single-host retained-result audit. For fresh runs,
+complete setup above and follow the corresponding `E1.md`--`E5.md` guide.
 
 Each script must resolve paths from its own location so execution does not
 depend on the reviewer's current working directory. `script/run_e1` is the
@@ -68,7 +106,6 @@ the 8/16-GPU GPT points and every 16-GPU MoE point; its 32/64/128-GPU GPT
 points replay the supplied links under `large-cluster/e2/`. Node 0 writes
 `result/e2/generated_figure5/<run-id>/` and regenerates `plot/figure5.pdf`.
 The optional `table4` mode remains a separate single-node FakeCUDA path.
-`script/setup` builds FakeCUDA, PRoot, and the real CUDA/NCCL capture wrappers.
 
 `script/run_e3` defaults to Figure 6. Figures 6--8 are all coordinator
 workflows: configure the peer once, then invoke each command only on node 0.
