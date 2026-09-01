@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-PYTHON_BIN="${PYTHON_BIN:-python3}"
+PYTHON_BIN="${PYTHON_BIN:-$ROOT/.venv/bin/python}"
 TRACE_ROOT="${E1_TRACE_ROOT:-$ROOT/large-cluster/e1/historical_sparse_moe}"
 MODE="${1:-trace}"
 

@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../../.." && pwd)"
 ACTION="${1:-run}"
-PYTHON_BIN="${PYTHON_BIN:-python3}"
+PYTHON_BIN="${PYTHON_BIN:-$ROOT/.venv/bin/python}"
 RUN_ID="${FIGURE8_RUN_ID:-${FLEXMAYA_RUN_ID:-}}"
 
 [[ $# -le 1 ]] || { echo "usage: script/run_e3 figure8 [self-test|run|verify]" >&2; exit 2; }

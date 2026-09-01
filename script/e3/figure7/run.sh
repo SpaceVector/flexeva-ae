@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../../.." && pwd)"
 ACTION="${1:-run}"
-PYTHON_BIN="${PYTHON_BIN:-python3}"
+PYTHON_BIN="${PYTHON_BIN:-$ROOT/.venv/bin/python}"
 DRIVER="$ROOT/script/e3/figure7/measure_figure7_production.py"
 
 [[ $# -le 1 ]] || {
@@ -22,7 +22,7 @@ if [[ "$PYTHON_BIN" != */* ]]; then
     PYTHON_BIN="$(command -v "$PYTHON_BIN" || true)"
 fi
 [[ -n "$PYTHON_BIN" ]] || { echo "figure7: Python is unavailable" >&2; exit 2; }
-PYTHON_BIN="$(realpath -e "$PYTHON_BIN")"
+PYTHON_BIN="$(cd -- "$(dirname -- "$PYTHON_BIN")" && pwd -P)/$(basename -- "$PYTHON_BIN")"
 
 export PYTHONPATH="$ROOT/FlexEva/flexmaya_ras/src:$ROOT/script/e3/capture:$ROOT/script/e3/figure7:$ROOT/script/e3/workload/megatron${PYTHONPATH:+:$PYTHONPATH}"
 export FAKECUDA_TARGET_ENV_ROOT="${FAKECUDA_TARGET_ENV_ROOT:-$(cd -- "$(dirname -- "$PYTHON_BIN")/.." && pwd)}"
@@ -55,12 +55,11 @@ FIGURE7_PEER_TARGET="${FIGURE7_PEER_TARGET:-${FLEXMAYA_PEER_TARGET:-}}"
 FIGURE7_PEER_PORT="${FIGURE7_PEER_PORT:-${FLEXMAYA_PEER_PORT:-22}}"
 FIGURE7_PEER_REPO_ROOT="${FIGURE7_PEER_REPO_ROOT:-${FLEXMAYA_PEER_REPO_ROOT:-}}"
 FIGURE7_PEER_NODE_ROOT="${FIGURE7_PEER_NODE_ROOT:-${FLEXMAYA_PEER_NODE_ROOT:-}}"
-FIGURE7_PEER_PYTHON="${FIGURE7_PEER_PYTHON:-${FLEXMAYA_PEER_PYTHON:-}}"
+FIGURE7_PEER_PYTHON="${FIGURE7_PEER_PYTHON:-${FLEXMAYA_PEER_PYTHON:-$FIGURE7_PEER_REPO_ROOT/.venv/bin/python}}"
 : "${FIGURE7_MASTER_ADDR:?set FLEXMAYA_MASTER_ADDR to the coordinator address reachable from the peer}"
 : "${FIGURE7_PEER_TARGET:?set FLEXMAYA_PEER_TARGET to the peer SSH target}"
 : "${FIGURE7_PEER_REPO_ROOT:?set FLEXMAYA_PEER_REPO_ROOT to this checkout on the peer}"
 : "${FIGURE7_PEER_NODE_ROOT:?set FLEXMAYA_PEER_NODE_ROOT to the peer large-filesystem root}"
-: "${FIGURE7_PEER_PYTHON:?set FLEXMAYA_PEER_PYTHON to the peer canonical Python}"
 
 MAYA_ROOT="${MAYA_ROOT:-$ROOT/FlexEva/backends/maya}"
 PROOT_BIN="${PROOT_BIN:-$ROOT/.deps/proot-5.3.1/bin/proot}"

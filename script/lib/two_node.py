@@ -180,7 +180,9 @@ def launch(args: argparse.Namespace) -> int:
     peer_port = checked_port(os.environ.get("FLEXMAYA_PEER_PORT", "22"), "FLEXMAYA_PEER_PORT")
     peer_root = Path(required_env("FLEXMAYA_PEER_REPO_ROOT"))
     peer_node_root = Path(required_env("FLEXMAYA_PEER_NODE_ROOT"))
-    peer_python = Path(required_env("FLEXMAYA_PEER_PYTHON"))
+    peer_python = Path(
+        os.environ.get("FLEXMAYA_PEER_PYTHON") or peer_root / ".venv/bin/python"
+    )
     if not all(path.is_absolute() for path in (peer_root, peer_node_root, peer_python)):
         raise SystemExit("two-node: peer repo, node root, and Python must be absolute paths")
 

@@ -3,14 +3,14 @@ set -euo pipefail
 
 E5_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd -- "$E5_DIR/../.." && pwd)"
-PYTHON_BIN="${PYTHON_BIN:-${CANONICAL_PYTHON:-python3}}"
+PYTHON_BIN="${PYTHON_BIN:-${CANONICAL_PYTHON:-$ROOT/.venv/bin/python}}"
 MODE="${1:-run}"
 
 if [[ "$PYTHON_BIN" != */* ]]; then
     PYTHON_BIN="$(command -v "$PYTHON_BIN" || true)"
 fi
 [[ -n "$PYTHON_BIN" && -x "$PYTHON_BIN" ]] || { echo "E5: Python is unavailable" >&2; exit 2; }
-PYTHON_BIN="$(realpath -e "$PYTHON_BIN")"
+PYTHON_BIN="$(cd -- "$(dirname -- "$PYTHON_BIN")" && pwd -P)/$(basename -- "$PYTHON_BIN")"
 
 if [[ -d "$ROOT/FlexEva/backends/maya" ]]; then
     MAYA_ROOT="${MAYA_ROOT:-$ROOT/FlexEva/backends/maya}"

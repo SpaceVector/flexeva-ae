@@ -4,7 +4,7 @@ set -euo pipefail
 E5_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd -- "$E5_DIR/../.." && pwd)"
 BUNDLE_ROOT="$E5_DIR/bundle"
-PYTHON_BIN="${PYTHON_BIN:-python3}"
+PYTHON_BIN="${PYTHON_BIN:-$ROOT/.venv/bin/python}"
 OUTPUT_ARG="${1:-$ROOT/result/e5/generated}"
 
 if [[ "$PYTHON_BIN" != */* ]]; then

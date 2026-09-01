@@ -9,45 +9,51 @@ This repository contains the artifact implementation, experiment drivers,
 compact result ledgers, and paper plots. FlexEva is included directly under
 `FlexEva/`; no submodule initialization is required.
 
+For reviewers in mainland China, the repository is also mirrored at
+[`https://gitee.com/space-line-vector/flexeva-ae`](https://gitee.com/space-line-vector/flexeva-ae).
+Use the same mirror and commit on both nodes.
+
 ## Reviewer workflow
 
-### 1. Prepare both nodes
+### 1. Prepare the two checkouts
 
-Check out the same revision on node 0 and node 1. From the repository root,
-run the following command once on each node:
+Check out the same revision on node 0 and node 1. On node 0, configure
+non-interactive SSH access and identify the checkout on node 1:
 
 ```bash
-export PYTHON_BIN=/path/to/python3.12
+export FLEXMAYA_PEER_TARGET=<user>@<node-1-address>
+export FLEXMAYA_PEER_PORT=22
+export FLEXMAYA_PEER_REPO_ROOT=/path/to/node-1/flexeva-ae
+```
+
+### 2. Set up both nodes from node 0
+
+Run setup once, from the repository root on node 0:
+
+```bash
 script/setup
 ```
 
-`script/setup` installs all Python dependencies, builds the native components,
-and checks the required software, GPU topology, and filesystem. A successful
-setup ends with `AE setup: PASS`. The command prepares its local node; continue
-only after it has passed on both nodes.
+`script/setup` verifies that both checkouts use the same commit, installs the
+repository-pinned uv and Python 3.12.13 below `.deps/`, creates `.venv`, and
+then repeats the same uv-only setup on node 1 over SSH. No system Python
+installation is required. Continue only after it ends with
+`AE two-node setup: PASS`.
 
-### 2. Configure node 0
+### 3. Configure and run from node 0
 
-Set the following variables only on node 0 and configure non-interactive SSH
-access to node 1:
+Set the experiment filesystem and coordinator variables on node 0:
 
 ```bash
-export PYTHON_BIN=/path/to/node-0/python
 export AE_NODE_ROOT=/path/to/node-0/experiment-filesystem
 export FLEXMAYA_MASTER_ADDR=<node-0-address>
 export FLEXMAYA_MASTER_PORT=29500
 export FLEXMAYA_CONTROL_PORT=29600
-export FLEXMAYA_PEER_TARGET=<user>@<node-1-address>
-export FLEXMAYA_PEER_PORT=22
-export FLEXMAYA_PEER_REPO_ROOT=/path/to/node-1/flexeva-ae
 export FLEXMAYA_PEER_NODE_ROOT=/path/to/node-1/experiment-filesystem
-export FLEXMAYA_PEER_PYTHON=/path/to/node-1/python
 ```
 
 Make sure the supplied large-cluster trace links resolve, or set the overrides
 described under [External trace inputs](#external-trace-inputs).
-
-### 3. Run from node 0
 
 Start the complete reproduction once, on node 0:
 
@@ -101,14 +107,15 @@ Fresh GPU experiments use the environment enforced by `script/check_setup`:
 - Linux x86-64 and a checkout located on GPFS, with at least 20 GiB free for
   setup;
 - eight NVIDIA A100-SXM4-80GB GPUs with full NV12 topology per node;
-- Python 3.12.13 with development headers and a shared library;
+- `curl` or `wget`, plus network access for uv 0.11.7, its managed Python
+  3.12.13 distribution, and Python wheels;
 - PyTorch 2.8.0+cu128 and CUDA toolkit 12.8;
-- g++ 11.4.x, CMake 3.22.1, `git`, `make`, `protoc`, `mpicxx`, and
+- g++ 11.4.x, CMake 3.22.1, `git`, `make`, `protoc`, `mpicxx`, `ssh`, and
   `nvidia-smi`.
 
-A normal desktop checkout can run the retained audit, but `script/setup` and
-the full reproduction reject a non-GPFS filesystem or a different GPU
-topology.
+uv provides Python 3.12.13, its development headers, and its shared library;
+the system Python version is ignored. The full setup check rejects a non-GPFS
+filesystem or a different GPU topology.
 
 The distributed runners enforce larger defaults: 500 GiB for E2 Figure 5 and
 E3 Figures 6--7, and 50 GiB for E3 Figure 8. Their `*_MIN_FREE_GIB`
@@ -126,8 +133,8 @@ export MIN_GPFS_FREE_GIB=20
 
 The automatic peer launch applies to both `script/run_all` and the individual
 experiment runners. E2 Figure 5 and E3 Figures 6--8 connect to node 1 when
-their command is started on node 0. Setup remains explicit: `script/setup`
-must already have passed on both nodes before any experiment starts.
+their command is started on node 0. The single `script/setup` command on node
+0 prepares both nodes before any experiment starts.
 
 ## Individual experiment runners
 
@@ -154,8 +161,8 @@ generally require a new run ID or an empty output directory.
 
 ## Audit retained results only
 
-To validate the checked-in ledgers without launching the full reproduction,
-install `requirements.txt` in any Python environment and run:
+After `script/setup`, validate the checked-in ledgers without launching the
+full reproduction with:
 
 ```bash
 script/run_all audit

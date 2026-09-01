@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-PYTHON_BIN="${PYTHON_BIN:-python3}"
+PYTHON_BIN="${PYTHON_BIN:-$ROOT/.venv/bin/python}"
 MODE="${1:-run}"
 
 usage() {
@@ -28,7 +28,7 @@ if [[ "$PYTHON_BIN" != */* ]]; then
     PYTHON_BIN="$(command -v "$PYTHON_BIN" || true)"
 fi
 [[ -n "$PYTHON_BIN" ]] || { echo "run_all: Python is unavailable" >&2; exit 2; }
-PYTHON_BIN="$(realpath -e "$PYTHON_BIN")"
+PYTHON_BIN="$(cd -- "$(dirname -- "$PYTHON_BIN")" && pwd -P)/$(basename -- "$PYTHON_BIN")"
 export PYTHON_BIN
 
 case "$MODE" in
@@ -44,7 +44,7 @@ case "$MODE" in
 
         if [[ "${RUN_ALL_DRY_RUN:-0}" != 1 ]]; then
             for name in AE_NODE_ROOT FLEXMAYA_MASTER_ADDR FLEXMAYA_PEER_TARGET \
-                FLEXMAYA_PEER_REPO_ROOT FLEXMAYA_PEER_NODE_ROOT FLEXMAYA_PEER_PYTHON; do
+                FLEXMAYA_PEER_REPO_ROOT FLEXMAYA_PEER_NODE_ROOT; do
                 [[ -n "${!name:-}" ]] || {
                     echo "run_all: set $name before the full reproduction" >&2
                     exit 2

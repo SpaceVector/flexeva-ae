@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
-PYTHON_BIN="${PYTHON_BIN:-python3}"
+PYTHON_BIN="${PYTHON_BIN:-$ROOT/.venv/bin/python}"
 MAYA_ROOT="${MAYA_ROOT:-$ROOT/FlexEva/backends/maya}"
 PROOT_BIN="${PROOT_BIN:-$ROOT/.deps/proot-5.3.1/bin/proot}"
 LARGE_ROOT="${FIGURE5_LARGE_CLUSTER_ROOT:-$ROOT/large-cluster/e2}"
@@ -16,7 +16,7 @@ if [[ "$PYTHON_BIN" != */* ]]; then
     PYTHON_BIN="$(command -v "$PYTHON_BIN" || true)"
 fi
 [[ -n "$PYTHON_BIN" ]] || { echo "figure5: Python is unavailable" >&2; exit 2; }
-PYTHON_BIN="$(realpath -e "$PYTHON_BIN")"
+PYTHON_BIN="$(cd -- "$(dirname -- "$PYTHON_BIN")" && pwd -P)/$(basename -- "$PYTHON_BIN")"
 
 if [[ -z "${FLEXMAYA_NODE_RANK:-}" ]]; then
     : "${RUN_ID:?set FIGURE5_RUN_ID to a unique guarded-run identifier}"

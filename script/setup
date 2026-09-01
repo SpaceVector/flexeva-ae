@@ -2,31 +2,104 @@
 set -euo pipefail
 
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-PYTHON_BIN="${PYTHON_BIN:-python3}"
+PYTHON_VERSION="3.12.13"
+UV_VERSION="0.11.7"
+UV_ROOT="$ROOT/.deps/uv"
+UV_BIN="$UV_ROOT/uv"
+PYTHON_BIN="$ROOT/.venv/bin/python"
+LOCAL_ONLY="${FLEXEVA_SETUP_LOCAL_ONLY:-0}"
 JOBS="${JOBS:-8}"
 MAYA_ROOT="${MAYA_ROOT:-$ROOT/FlexEva/backends/maya}"
 PROOT_BIN="${PROOT_BIN:-$ROOT/.deps/proot-5.3.1/bin/proot}"
 
-if [[ "$PYTHON_BIN" != */* ]]; then
-    PYTHON_BIN="$(command -v "$PYTHON_BIN" || true)"
+[[ "$LOCAL_ONLY" == 0 || "$LOCAL_ONLY" == 1 ]] || {
+    echo "setup: FLEXEVA_SETUP_LOCAL_ONLY must be 0 or 1" >&2
+    exit 2
+}
+
+if [[ "$LOCAL_ONLY" == 0 ]]; then
+    PEER_TARGET="${FLEXMAYA_PEER_TARGET:-}"
+    PEER_PORT="${FLEXMAYA_PEER_PORT:-22}"
+    PEER_REPO_ROOT="${FLEXMAYA_PEER_REPO_ROOT:-}"
+    [[ "$PEER_TARGET" =~ ^[A-Za-z0-9_.-]+(@[A-Za-z0-9_.:-]+)?$ ]] || {
+        echo "setup: set FLEXMAYA_PEER_TARGET to the node-1 SSH target" >&2
+        exit 2
+    }
+    [[ "$PEER_PORT" =~ ^[0-9]+$ && "$PEER_PORT" -ge 1 && "$PEER_PORT" -le 65535 ]] || {
+        echo "setup: FLEXMAYA_PEER_PORT must be in [1, 65535]" >&2
+        exit 2
+    }
+    [[ "$PEER_REPO_ROOT" =~ ^/[A-Za-z0-9._/-]+$ ]] || {
+        echo "setup: set FLEXMAYA_PEER_REPO_ROOT to an absolute node-1 checkout path" >&2
+        exit 2
+    }
+    GIT_BIN="$(command -v git || true)"
+    SSH_BIN="$(command -v ssh || true)"
+    [[ -n "$GIT_BIN" ]] || { echo "setup: git is unavailable" >&2; exit 2; }
+    [[ -n "$SSH_BIN" ]] || { echo "setup: ssh is unavailable" >&2; exit 2; }
+    SSH_ARGS=(-F /dev/null -o BatchMode=yes -o ConnectTimeout=10 \
+        -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -p "$PEER_PORT")
+    LOCAL_COMMIT="$("$GIT_BIN" -C "$ROOT" rev-parse HEAD)"
+    PEER_COMMIT="$("$SSH_BIN" "${SSH_ARGS[@]}" "$PEER_TARGET" \
+        "git -C '$PEER_REPO_ROOT' rev-parse HEAD")"
+    [[ "$PEER_COMMIT" == "$LOCAL_COMMIT" ]] || {
+        echo "setup: node revisions differ: local=$LOCAL_COMMIT peer=$PEER_COMMIT" >&2
+        exit 2
+    }
 fi
-[[ -n "$PYTHON_BIN" ]] || { echo "setup: Python is unavailable" >&2; exit 2; }
-PYTHON_BIN="$(realpath -e "$PYTHON_BIN")"
-PYTHON_INCLUDE_DIR="$($PYTHON_BIN -c 'import sysconfig; print(sysconfig.get_config_var("INCLUDEPY"))')"
-PYTHON_LIBRARY="$($PYTHON_BIN -c 'import pathlib, sys, sysconfig; names=(sysconfig.get_config_var("LDLIBRARY"), f"libpython{sys.version_info.major}.{sys.version_info.minor}.so"); roots=(sysconfig.get_config_var("LIBDIR"), sysconfig.get_config_var("LIBPL")); print(next((pathlib.Path(root) / name for root in roots for name in names if root and name and (pathlib.Path(root) / name).exists()), ""))')"
+
+if [[ ! -x "$UV_BIN" ]]; then
+    mkdir -p "$UV_ROOT"
+    installer="https://astral.sh/uv/$UV_VERSION/install.sh"
+    if command -v curl >/dev/null 2>&1; then
+        curl -LsSf "$installer" | env UV_UNMANAGED_INSTALL="$UV_ROOT" sh
+    elif command -v wget >/dev/null 2>&1; then
+        wget -qO- "$installer" | env UV_UNMANAGED_INSTALL="$UV_ROOT" sh
+    else
+        echo "setup: curl or wget is required to install uv" >&2
+        exit 2
+    fi
+fi
+[[ -x "$UV_BIN" ]] || { echo "setup: uv installation failed: $UV_BIN" >&2; exit 2; }
+
+venv_ready=0
+if [[ -x "$PYTHON_BIN" && -f "$ROOT/.venv/pyvenv.cfg" ]] \
+    && grep -qx "uv = $UV_VERSION" "$ROOT/.venv/pyvenv.cfg" \
+    && grep -Fq "home = $ROOT/.deps/python/" "$ROOT/.venv/pyvenv.cfg" \
+    && [[ "$("$PYTHON_BIN" -c 'import platform; print(platform.python_version())')" == "$PYTHON_VERSION" ]]; then
+    venv_ready=1
+fi
+if [[ "$venv_ready" == 0 ]]; then
+    [[ ! -e "$ROOT/.venv" || -f "$ROOT/.venv/pyvenv.cfg" ]] || {
+        echo "setup: refusing to replace non-venv path: $ROOT/.venv" >&2
+        exit 2
+    }
+    UV_PYTHON_INSTALL_DIR="$ROOT/.deps/python" \
+        "$UV_BIN" venv --clear --managed-python --python "$PYTHON_VERSION" "$ROOT/.venv"
+fi
+[[ -x "$PYTHON_BIN" ]] || { echo "setup: uv did not create $PYTHON_BIN" >&2; exit 2; }
+[[ "$("$PYTHON_BIN" -c 'import platform; print(platform.python_version())')" == "$PYTHON_VERSION" ]] || {
+    echo "setup: uv environment must use Python $PYTHON_VERSION" >&2
+    exit 2
+}
+uv_report="$("$UV_BIN" --version)"
+echo "setup: $uv_report, Python $PYTHON_VERSION at $PYTHON_BIN"
+
+PYTHON_INCLUDE_DIR="$("$PYTHON_BIN" -c 'import sysconfig; print(sysconfig.get_config_var("INCLUDEPY"))')"
+PYTHON_LIBRARY="$("$PYTHON_BIN" -c 'import pathlib, sys, sysconfig; names=(sysconfig.get_config_var("LDLIBRARY"), f"libpython{sys.version_info.major}.{sys.version_info.minor}.so"); roots=(sysconfig.get_config_var("LIBDIR"), sysconfig.get_config_var("LIBPL")); print(next((pathlib.Path(root) / name for root in roots for name in names if root and name and (pathlib.Path(root) / name).exists()), ""))')"
 test -f "$PYTHON_INCLUDE_DIR/Python.h" || {
     echo "setup: Python development headers are missing for $PYTHON_BIN" >&2
     exit 2
 }
 test -f "$PYTHON_LIBRARY" || { echo "setup: Python shared library is missing: $PYTHON_LIBRARY" >&2; exit 2; }
 
-"$PYTHON_BIN" -m pip install -r "$ROOT/requirements.txt" \
+UV_LINK_MODE="${UV_LINK_MODE:-copy}" "$UV_BIN" pip install --python "$PYTHON_BIN" \
+    -r "$ROOT/requirements.txt" \
     -r "$MAYA_ROOT/gpu_estimator/fake_driver_xgboost_provider_runtime_only_bundle/requirements.txt"
 
-if ! "$PYTHON_BIN" -c 'import torch' >/dev/null 2>&1; then
-    TORCH_INDEX_URL="${TORCH_INDEX_URL:-https://download.pytorch.org/whl/cu128}"
-    "$PYTHON_BIN" -m pip install --index-url "$TORCH_INDEX_URL" "torch==2.8.0"
-fi
+TORCH_INDEX_URL="${TORCH_INDEX_URL:-https://download.pytorch.org/whl/cu128}"
+UV_LINK_MODE="${UV_LINK_MODE:-copy}" "$UV_BIN" pip install --python "$PYTHON_BIN" \
+    --default-index "$TORCH_INDEX_URL" "torch==2.8.0"
 
 "$PYTHON_BIN" - <<'PY'
 import torch
@@ -67,10 +140,17 @@ if [[ ! -x "$PROOT_BIN" ]]; then
         exit 2
     }
     if ! "$ROOT/script/setup-proot.sh" check >/dev/null 2>&1; then
-        "$ROOT/script/setup-proot.sh" build
+        TALLOC_BUILD_PYTHON="$PYTHON_BIN" "$ROOT/script/setup-proot.sh" build
     fi
 fi
 
 PYTHON_BIN="$PYTHON_BIN" MAYA_ROOT="$MAYA_ROOT" PROOT_BIN="$PROOT_BIN" \
     "$ROOT/script/check_setup"
-echo "AE setup: PASS"
+echo "AE node setup: PASS ($(hostname))"
+
+if [[ "$LOCAL_ONLY" == 0 ]]; then
+    echo "setup: preparing node 1 through $PEER_TARGET"
+    "$SSH_BIN" "${SSH_ARGS[@]}" "$PEER_TARGET" \
+        "cd '$PEER_REPO_ROOT' && FLEXEVA_SETUP_LOCAL_ONLY=1 ./script/setup"
+    echo "AE two-node setup: PASS"
+fi

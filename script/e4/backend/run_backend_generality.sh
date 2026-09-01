@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../../.." && pwd)"
-PYTHON_BIN="${PYTHON_BIN:-python3}"
+PYTHON_BIN="${PYTHON_BIN:-$ROOT/.venv/bin/python}"
 ASTRA_ROOT="${ASTRA_TABLE7_ROOT:-$ROOT/.deps/astra-sim-table7}"
 RESULT_ROOT="${TABLE7_RESULT_ROOT:-$ROOT/result/e4/generated/table7}"
 SETUP="$ROOT/script/e4/backend/setup_astra.sh"
@@ -20,7 +20,7 @@ if [[ "$PYTHON_BIN" != */* ]]; then
     PYTHON_BIN="$(command -v "$PYTHON_BIN" || true)"
 fi
 [[ -n "$PYTHON_BIN" ]] || { echo "run_backend_generality: Python is unavailable" >&2; exit 2; }
-PYTHON_BIN="$(realpath -e "$PYTHON_BIN")"
+PYTHON_BIN="$(cd -- "$(dirname -- "$PYTHON_BIN")" && pwd -P)/$(basename -- "$PYTHON_BIN")"
 
 if [[ ! -x "$BINARY" ]]; then
     ASTRA_TABLE7_ROOT="$ASTRA_ROOT" PYTHON="$PYTHON_BIN" "$SETUP" build
