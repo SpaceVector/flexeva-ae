@@ -97,7 +97,9 @@ Fresh GPU experiments use the environment enforced by `script/check_setup`:
   `nvidia-smi`.
 
 uv provides Python 3.12.13, its development headers, and its shared library;
-the system Python version is ignored. The full setup check rejects a non-GPFS
+the system Python version is ignored. Setup uses the Astral release service for
+the checksum-pinned uv binary, npmmirror for managed Python, and Aliyun mirrors
+for PyPI and CUDA 12.8 wheels. The full setup check rejects a non-GPFS
 filesystem or a different GPU topology.
 
 The distributed runners enforce larger defaults: 500 GiB for E2 Figure 5 and
@@ -111,6 +113,9 @@ export CUDA_HOME=/usr/local/cuda
 export JOBS=8
 export MIN_GPFS_FREE_GIB=20
 ```
+
+To use the upstream services instead, set `UV_DEFAULT_INDEX`,
+`UV_PYTHON_INSTALL_MIRROR`, and `TORCH_INDEX_URL` before `script/setup`.
 
 ## Automatic two-node execution
 

@@ -6,6 +6,11 @@ PYTHON_VERSION="3.12.13"
 UV_VERSION="0.11.7"
 UV_ROOT="$ROOT/.deps/uv"
 UV_BIN="$UV_ROOT/uv"
+UV_ARCHIVE_URL="${UV_ARCHIVE_URL:-https://releases.astral.sh/github/uv/releases/download/$UV_VERSION/uv-x86_64-unknown-linux-gnu.tar.gz}"
+UV_ARCHIVE_SHA256="6681d691eb7f9c00ac6a3af54252f7ab29ae72f0c8f95bdc7f9d1401c23ea868"
+UV_DEFAULT_INDEX="${UV_DEFAULT_INDEX:-https://mirrors.aliyun.com/pypi/simple/}"
+UV_PYTHON_INSTALL_MIRROR="${UV_PYTHON_INSTALL_MIRROR:-https://registry.npmmirror.com/-/binary/python-build-standalone}"
+TORCH_FIND_LINKS="${TORCH_FIND_LINKS:-https://mirrors.aliyun.com/pytorch-wheels/cu128/}"
 PYTHON_BIN="$ROOT/.venv/bin/python"
 LOCAL_ONLY="${FLEXEVA_SETUP_LOCAL_ONLY:-0}"
 JOBS="${JOBS:-8}"
@@ -86,17 +91,32 @@ fi
 
 if [[ ! -x "$UV_BIN" ]]; then
     mkdir -p "$UV_ROOT"
-    installer="https://astral.sh/uv/$UV_VERSION/install.sh"
+    command -v sha256sum >/dev/null 2>&1 || { echo "setup: sha256sum is required" >&2; exit 2; }
+    command -v tar >/dev/null 2>&1 || { echo "setup: tar is required" >&2; exit 2; }
+    uv_archive="$(mktemp)"
+    trap 'rm -f -- "$uv_archive"' EXIT
     if command -v curl >/dev/null 2>&1; then
-        curl -LsSf "$installer" | env UV_UNMANAGED_INSTALL="$UV_ROOT" sh
+        curl -LsSf --retry 3 --connect-timeout 15 "$UV_ARCHIVE_URL" -o "$uv_archive"
     elif command -v wget >/dev/null 2>&1; then
-        wget -qO- "$installer" | env UV_UNMANAGED_INSTALL="$UV_ROOT" sh
+        wget -q --tries=3 --timeout=15 -O "$uv_archive" "$UV_ARCHIVE_URL"
     else
         echo "setup: curl or wget is required to install uv" >&2
         exit 2
     fi
+    printf '%s  %s\n' "$UV_ARCHIVE_SHA256" "$uv_archive" | sha256sum -c -
+    tar -xzf "$uv_archive" -C "$UV_ROOT" --strip-components=1 \
+        uv-x86_64-unknown-linux-gnu/uv
+    chmod 0755 "$UV_BIN"
+    rm -f -- "$uv_archive"
+    trap - EXIT
 fi
 [[ -x "$UV_BIN" ]] || { echo "setup: uv installation failed: $UV_BIN" >&2; exit 2; }
+uv_report="$($UV_BIN --version)"
+read -r uv_name uv_actual _ <<<"$uv_report"
+[[ "$uv_name" == uv && "$uv_actual" == "$UV_VERSION" ]] || {
+    echo "setup: uv must be $UV_VERSION, found: $uv_report" >&2
+    exit 2
+}
 
 venv_ready=0
 if [[ -x "$PYTHON_BIN" && -f "$ROOT/.venv/pyvenv.cfg" ]] \
@@ -111,6 +131,7 @@ if [[ "$venv_ready" == 0 ]]; then
         exit 2
     }
     UV_PYTHON_INSTALL_DIR="$ROOT/.deps/python" \
+    UV_PYTHON_INSTALL_MIRROR="$UV_PYTHON_INSTALL_MIRROR" \
         "$UV_BIN" venv --clear --managed-python --python "$PYTHON_VERSION" "$ROOT/.venv"
 fi
 [[ -x "$PYTHON_BIN" ]] || { echo "setup: uv did not create $PYTHON_BIN" >&2; exit 2; }
@@ -118,7 +139,6 @@ fi
     echo "setup: uv environment must use Python $PYTHON_VERSION" >&2
     exit 2
 }
-uv_report="$("$UV_BIN" --version)"
 echo "setup: $uv_report, Python $PYTHON_VERSION at $PYTHON_BIN"
 
 PYTHON_INCLUDE_DIR="$("$PYTHON_BIN" -c 'import sysconfig; print(sysconfig.get_config_var("INCLUDEPY"))')"
@@ -129,13 +149,18 @@ test -f "$PYTHON_INCLUDE_DIR/Python.h" || {
 }
 test -f "$PYTHON_LIBRARY" || { echo "setup: Python shared library is missing: $PYTHON_LIBRARY" >&2; exit 2; }
 
-UV_LINK_MODE="${UV_LINK_MODE:-copy}" "$UV_BIN" pip install --python "$PYTHON_BIN" \
-    -r "$ROOT/requirements.txt" \
+pip_args=(
+    --python "$PYTHON_BIN"
+    -r "$ROOT/requirements.txt"
     -r "$MAYA_ROOT/gpu_estimator/fake_driver_xgboost_provider_runtime_only_bundle/requirements.txt"
-
-TORCH_INDEX_URL="${TORCH_INDEX_URL:-https://download.pytorch.org/whl/cu128}"
-UV_LINK_MODE="${UV_LINK_MODE:-copy}" "$UV_BIN" pip install --python "$PYTHON_BIN" \
-    --default-index "$TORCH_INDEX_URL" "torch==2.8.0"
+)
+if [[ -n "${TORCH_INDEX_URL:-}" ]]; then
+    pip_args+=(--index "$TORCH_INDEX_URL" "torch==2.8.0")
+else
+    pip_args+=(--find-links "$TORCH_FIND_LINKS" "torch==2.8.0+cu128")
+fi
+UV_DEFAULT_INDEX="$UV_DEFAULT_INDEX" UV_LINK_MODE="${UV_LINK_MODE:-copy}" \
+    "$UV_BIN" pip install "${pip_args[@]}"
 
 "$PYTHON_BIN" - <<'PY'
 import torch
