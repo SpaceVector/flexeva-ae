@@ -29,34 +29,21 @@ ledgers, and the implementation for each experiment is grouped under
 | E5 | Table 8 |
 
 E1 setup, replay, and validation instructions are in
-[`E1.md`](E1.md).
+[`E1.md`](script/e1/E1.md).
 
 E2 trace-similarity, evaluator-feedback, and trace instructions are in
-[`E2.md`](E2.md).
+[`E2.md`](script/e2/E2.md).
 
 E3 Figure 6--8 setup, execution, and checks are in
-[`E3.md`](E3.md).
+[`E3.md`](script/e3/E3.md).
 
 E4 workload and backend generality instructions are in
-[`E4.md`](E4.md).
+[`E4.md`](script/e4/E4.md).
 
 E5 candidate-lineage, RSS, and Table 8 instructions are in
-[`E5.md`](E5.md).
+[`E5.md`](script/e5/E5.md).
 
 ## Setup
-
-### Retained-result audit
-
-The checked-in CSV and JSON results can be audited without GPUs:
-
-```bash
-python3 -m venv .venv
-. .venv/bin/activate
-python -m pip install -r requirements.txt
-script/run_all
-```
-
-### Fresh GPU experiments
 
 Fresh runs use the fixed AE server environment:
 
@@ -67,17 +54,18 @@ Fresh runs use the fixed AE server environment:
 - g++ 11.4.x, CMake 3.22.1, `git`, `make`, `protoc`, `mpicxx`, and
   `nvidia-smi`.
 
-Place the checkout below the GPFS experiment root, select the CUDA-enabled
-Python environment, and run:
+Place the checkout below the GPFS experiment root and run the setup command
+from the repository root, as in the artifact appendix:
 
 ```bash
-export PYTHON_BIN=/path/to/python3.12
-script/setup
+./script/setup
 ```
 
-`script/setup` installs the Python requirements, builds the FlexEva extension,
+`./script/setup` installs the Python requirements, builds the FlexEva extension,
 FakeCUDA, CppEvent, the CUDA/NCCL/cuBLAS wrappers, and PRoot, then runs
 `script/check_setup`. A successful setup ends with `AE setup: PASS`.
+Set `PYTHON_BIN` before invoking the command when `python3` is not the intended
+CUDA-enabled Python 3.12 installation.
 
 Run setup on every node from the same repository revision. E2 and E3 describe
 the additional peer SSH variables for two-node experiments.
@@ -87,11 +75,12 @@ the additional peer SSH variables for two-node experiments.
 Run from the repository root:
 
 ```bash
-script/run_all
+nohup ./script/run_all > run_all.log 2>&1 &
 ```
 
-`script/run_all` is a single-host retained-result audit. For fresh runs,
-complete setup above and follow the corresponding `E1.md`--`E5.md` guide.
+`./script/run_all` is a single-host retained-result audit. Its background log is
+written to `run_all.log`. For fresh runs, complete setup above and follow the
+corresponding [`E1.md`](script/e1/E1.md)--[`E5.md`](script/e5/E5.md) guides.
 
 Each script must resolve paths from its own location so execution does not
 depend on the reviewer's current working directory. `script/run_e1` is the
