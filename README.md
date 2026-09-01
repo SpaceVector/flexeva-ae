@@ -9,11 +9,12 @@ This repository contains the artifact implementation, experiment drivers,
 compact result ledgers, and paper plots. FlexEva is included directly under
 `FlexEva/`; no submodule initialization is required.
 
-## Reproduce all paper results
+## Reviewer workflow
 
-Run all commands from the repository root. Deploy the same revision on two
-eight-GPU nodes, then select the intended Python and install the environment on
-each node:
+### 1. Prepare both nodes
+
+Check out the same revision on node 0 and node 1. From the repository root,
+run the following command once on each node:
 
 ```bash
 export PYTHON_BIN=/path/to/python3.12
@@ -22,9 +23,13 @@ script/setup
 
 `script/setup` installs all Python dependencies, builds the native components,
 and checks the required software, GPU topology, and filesystem. A successful
-setup ends with `AE setup: PASS`.
+setup ends with `AE setup: PASS`. The command prepares its local node; continue
+only after it has passed on both nodes.
 
-On node 0, configure non-interactive SSH access to node 1:
+### 2. Configure node 0
+
+Set the following variables only on node 0 and configure non-interactive SSH
+access to node 1:
 
 ```bash
 export PYTHON_BIN=/path/to/node-0/python
@@ -40,17 +45,25 @@ export FLEXMAYA_PEER_PYTHON=/path/to/node-1/python
 ```
 
 Make sure the supplied large-cluster trace links resolve, or set the overrides
-described under [External trace inputs](#external-trace-inputs). Then start the
-complete reproduction from node 0:
+described under [External trace inputs](#external-trace-inputs).
+
+### 3. Run from node 0
+
+Start the complete reproduction once, on node 0:
 
 ```bash
 script/run_all
 ```
 
-`script/run_all` assigns one timestamped run ID, checks the prepared
-environment, and runs E1 through E5 in paper order. It regenerates Table 4,
-Figures 1 and 5--8, Tables 6--8, and the E5 per-round speedup result. It stops
-at the first failed experiment and finishes with:
+Do not start a matching command manually on node 1. `script/run_all` invokes
+each experiment runner on node 0. When an experiment needs both nodes, that
+runner opens SSH to node 1, starts the peer under the server guard, waits for
+both nodes, and returns the peer output to node 0 automatically.
+
+`script/run_all` assigns one timestamped base run ID and runs E1 through E5 in
+paper order. It regenerates Table 4, Figures 1 and 5--8, Tables 6--8, and the
+E5 per-round speedup result. It stops at the first failed experiment and
+finishes with:
 
 ```text
 AE full reproduction: PASS (<run-id>)
@@ -109,22 +122,25 @@ export JOBS=8
 export MIN_GPFS_FREE_GIB=20
 ```
 
-## Two-node execution
+## Automatic two-node execution
 
-E2 Figure 5 and E3 Figures 6--8 use the two configured nodes. `script/run_all`
-checks the local server guard, opens the peer over SSH, and runs each
-coordinator only on node 0. The detailed guides describe individual result
-layouts, verification commands, and optional port overrides.
+The automatic peer launch applies to both `script/run_all` and the individual
+experiment runners. E2 Figure 5 and E3 Figures 6--8 connect to node 1 when
+their command is started on node 0. Setup remains explicit: `script/setup`
+must already have passed on both nodes before any experiment starts.
 
-## Individual experiment entry points
+## Individual experiment runners
 
-| Experiment | Fresh-run command or modes |
-| --- | --- |
-| E1 | `script/run_e1` validates supplied 128-GPU traces; `script/run_e1 real` launches the five anchors on 16 nodes |
-| E2 | `FIGURE5_RUN_ID=<id> script/run_e2` runs Figure 5; `script/run_e2 table4` runs Table 4 |
-| E3 | `FIGURE6_RUN_ID=<id> script/run_e3` runs Figure 6; `script/run_e3 figure7 <mode>` and `script/run_e3 figure8 <mode>` select Figures 7 and 8 |
-| E4 | `script/run_e4` runs Table 6 followed by the Table 7 ASTRA-Sim backend cases |
-| E5 | `script/run_e5 paper-self-test`; guarded `script/e3/server.sh run <id> 8 -- script/run_e5 paper`; `E5_RESULT_ROOT=<path> script/run_e5 paper-verify` |
+Except for the separate E1 `real` path, run each command below once on node 0.
+The runner selects local or automatic two-node execution as required.
+
+| Experiment | Command or modes | Execution |
+| --- | --- | --- |
+| E1 | `script/run_e1`; `script/run_e1 real` is the separate 16-node path | Node 0 for the supplied-trace workflow |
+| E2 | `FIGURE5_RUN_ID=<id> script/run_e2` for Figure 5; `script/run_e2 table4` for Table 4 | Figure 5 uses nodes 0 and 1 automatically; Table 4 stays on node 0 |
+| E3 | `FIGURE6_RUN_ID=<id> script/run_e3`; `FIGURE7_RUN_ID=<id> script/run_e3 figure7 run`; `FIGURE8_RUN_ID=<id> script/run_e3 figure8 run` | Fresh Figure 6--8 runs use nodes 0 and 1 automatically; checks stay on node 0 |
+| E4 | `script/run_e4` | Node 0 |
+| E5 | `script/run_e5 paper-self-test`; guarded `script/e3/server.sh run <id> 8 -- script/run_e5 paper` | Node 0 |
 
 Figure 7 modes are `self-test`, `probe`, `run`, `report`, and `verify`.
 Figure 8 modes are `self-test`, `run`, and `verify`. E5 also retains
