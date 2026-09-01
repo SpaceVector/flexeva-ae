@@ -53,6 +53,9 @@ if [[ "$LOCAL_ONLY" == 0 ]]; then
         "$SSH_BIN" "${SSH_ARGS[@]}" "$PEER_TARGET" \
             "test ! -e '$PEER_REPO_ROOT' && git clone --quiet https://gitee.com/space-line-vector/flexeva-ae.git '$PEER_REPO_ROOT'"
     fi
+    "$SSH_BIN" "${SSH_ARGS[@]}" "$PEER_TARGET" \
+        "bash -s -- '$PEER_REPO_ROOT' '$LOCAL_COMMIT'" \
+        <"$ROOT/script/lib/sync_peer_checkout.sh"
     PEER_COMMIT="$("$SSH_BIN" "${SSH_ARGS[@]}" "$PEER_TARGET" \
         "git -C '$PEER_REPO_ROOT' rev-parse HEAD")"
     [[ "$PEER_COMMIT" == "$LOCAL_COMMIT" ]] || {
