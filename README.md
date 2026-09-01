@@ -9,6 +9,57 @@ This repository contains the artifact implementation, experiment drivers,
 compact result ledgers, and paper plots. FlexEva is included directly under
 `FlexEva/`; no submodule initialization is required.
 
+## Reproduce all paper results
+
+Run all commands from the repository root. Deploy the same revision on two
+eight-GPU nodes, then select the intended Python and install the environment on
+each node:
+
+```bash
+export PYTHON_BIN=/path/to/python3.12
+script/setup
+```
+
+`script/setup` installs all Python dependencies, builds the native components,
+and checks the required software, GPU topology, and filesystem. A successful
+setup ends with `AE setup: PASS`.
+
+On node 0, configure non-interactive SSH access to node 1:
+
+```bash
+export PYTHON_BIN=/path/to/node-0/python
+export AE_NODE_ROOT=/path/to/node-0/experiment-filesystem
+export FLEXMAYA_MASTER_ADDR=<node-0-address>
+export FLEXMAYA_MASTER_PORT=29500
+export FLEXMAYA_CONTROL_PORT=29600
+export FLEXMAYA_PEER_TARGET=<user>@<node-1-address>
+export FLEXMAYA_PEER_PORT=22
+export FLEXMAYA_PEER_REPO_ROOT=/path/to/node-1/flexeva-ae
+export FLEXMAYA_PEER_NODE_ROOT=/path/to/node-1/experiment-filesystem
+export FLEXMAYA_PEER_PYTHON=/path/to/node-1/python
+```
+
+Make sure the supplied large-cluster trace links resolve, or set the overrides
+described under [External trace inputs](#external-trace-inputs). Then start the
+complete reproduction from node 0:
+
+```bash
+script/run_all
+```
+
+`script/run_all` assigns one timestamped run ID, checks the prepared
+environment, and runs E1 through E5 in paper order. It regenerates Table 4,
+Figures 1 and 5--8, Tables 6--8, and the E5 per-round speedup result. It stops
+at the first failed experiment and finishes with:
+
+```text
+AE full reproduction: PASS (<run-id>)
+```
+
+E1 and the 32/64/128-GPU Figure 5 points use the supplied real trace inputs;
+the remaining paths launch their documented fresh measurements. Generated
+data is written below `result/<experiment>/generated/`, `trace/`, and `plot/`.
+
 ## Repository contents
 
 | Path | Contents |
@@ -30,28 +81,7 @@ The checked-in evidence covers:
 | E4 | Tables 6 and 7 | [`script/e4/E4.md`](script/e4/E4.md) |
 | E5 | Table 8 and Section 7.5 per-round speedup | [`script/e5/E5.md`](script/e5/E5.md) |
 
-## Audit the checked-in results
-
-The retained-result audit is CPU-only and does not require `script/setup` or
-the external raw traces:
-
-```bash
-python3 -m venv .venv
-. .venv/bin/activate
-python -m pip install -r requirements.txt
-script/run_all
-```
-
-A successful audit ends with:
-
-```text
-AE retained-result audit: PASS (E1-E5)
-```
-
-`script/run_all` validates the compact ledgers; it does not launch GPU jobs or
-regenerate every PDF.
-
-## Prepare a server for fresh runs
+## Environment requirements
 
 Fresh GPU experiments use the environment enforced by `script/check_setup`:
 
@@ -63,20 +93,9 @@ Fresh GPU experiments use the environment enforced by `script/check_setup`:
 - g++ 11.4.x, CMake 3.22.1, `git`, `make`, `protoc`, `mpicxx`, and
   `nvidia-smi`.
 
-A normal desktop checkout can run the retained audit, but the strict fresh-run
-check will reject a non-GPFS filesystem or a different GPU topology. Deploy the
-same revision below the experiment filesystem on every participating node,
-then run:
-
-```bash
-export PYTHON_BIN=/path/to/python3.12
-script/setup
-```
-
-`script/setup` installs the Python dependencies and builds the FlexEva C++
-extension, FakeCUDA, CppEvent, the CUDA/NCCL/cuBLAS interposition wrappers, and
-PRoot. It finishes by running `script/check_setup`; success is reported as
-`AE setup: PASS`.
+A normal desktop checkout can run the retained audit, but `script/setup` and
+the full reproduction reject a non-GPFS filesystem or a different GPU
+topology.
 
 The distributed runners enforce larger defaults: 500 GiB for E2 Figure 5 and
 E3 Figures 6--7, and 50 GiB for E3 Figure 8. Their `*_MIN_FREE_GIB`
@@ -90,33 +109,14 @@ export JOBS=8
 export MIN_GPFS_FREE_GIB=20
 ```
 
-## Two-node experiments
+## Two-node execution
 
-E2 Figure 5 and E3 Figures 6--8 use two nodes with eight GPUs each. Both
-checkouts must be at the same revision and pass `script/setup`. From node 0,
-configure non-interactive SSH access to node 1:
+E2 Figure 5 and E3 Figures 6--8 use the two configured nodes. `script/run_all`
+checks the local server guard, opens the peer over SSH, and runs each
+coordinator only on node 0. The detailed guides describe individual result
+layouts, verification commands, and optional port overrides.
 
-```bash
-export PYTHON_BIN=/path/to/node-0/python
-export AE_NODE_ROOT=/path/to/node-0/experiment-filesystem
-export FLEXMAYA_MASTER_ADDR=<node-0-address>
-export FLEXMAYA_PEER_TARGET=<user>@<node-1-address>
-export FLEXMAYA_PEER_PORT=22
-export FLEXMAYA_PEER_REPO_ROOT=/path/to/node-1/flexeva-ae
-export FLEXMAYA_PEER_NODE_ROOT=/path/to/node-1/experiment-filesystem
-export FLEXMAYA_PEER_PYTHON=/path/to/node-1/python
-```
-
-Check the local guard and shared launcher before a long run:
-
-```bash
-script/e3/server.sh self-test
-python3 script/lib/two_node.py self-test
-```
-
-Each experiment guide lists its run ID and rendezvous/control port variables.
-
-## Experiment entry points
+## Individual experiment entry points
 
 | Experiment | Fresh-run command or modes |
 | --- | --- |
@@ -136,12 +136,23 @@ Figure 7 and Figure 8 production runs require `FIGURE7_RUN_ID` and
 Fresh runners write below `result/<experiment>/generated/` and `trace/` and
 generally require a new run ID or an empty output directory.
 
+## Audit retained results only
+
+To validate the checked-in ledgers without launching the full reproduction,
+install `requirements.txt` in any Python environment and run:
+
+```bash
+script/run_all audit
+```
+
+A successful audit ends with `AE retained-result audit: PASS (E1-E5)`.
+
 ## External trace inputs
 
 The four links under `large-cluster/` point to traces mounted on the original
-evaluation servers and may be broken in a normal clone. They are not required
-for `script/run_all`, but they are required by the default E1 trace workflow
-and the 32/64/128-GPU points in E2 Figure 5.
+evaluation servers and may be broken in a normal clone. The full
+`script/run_all` workflow requires them for E1 and the 32/64/128-GPU points in
+E2 Figure 5; `script/run_all audit` does not require them.
 
 Use these overrides when the same data is mounted elsewhere:
 
