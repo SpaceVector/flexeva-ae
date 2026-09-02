@@ -6,17 +6,32 @@ script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 artifact_root=$(cd -- "$script_dir/../../.." && pwd)
 bundle_root="$script_dir/bundle"
 source_root=${ASTRA_TABLE7_ROOT:-"$artifact_root/.deps/astra-sim-table7"}
-upstream_url=https://github.com/astra-sim/astra-sim.git
+source_mirror=${ASTRA_TABLE7_MIRROR:-gitee}
+fetch_jobs=${ASTRA_TABLE7_FETCH_JOBS:-8}
+gitee_root=https://gitee.com/space-line-vector
 upstream_commit=518bd513ae110428cd62eb60efc0f3993fd53c70
 chakra_commit=0e3cd40c569f0a4cacb6d961bb56be53407abd2f
 marker="$source_root/.flexmaya-table7-source"
 binary="$source_root/extern/network_backend/ns-3/build/scratch/ns3.42-AstraSimNetwork-default"
 python_bin=${CANONICAL_PYTHON:-${PYTHON:-python3}}
+required_submodules=(
+    extern/graph_frontend/chakra
+    extern/helper/fmt
+    extern/helper/spdlog
+    extern/network_backend/ns-3
+    extern/remote_memory_backend/analytical
+)
 
 die() {
     echo "setup-astra-table7: $*" >&2
     exit 2
 }
+
+case "$source_mirror" in
+    gitee) upstream_url="$gitee_root/astra-sim.git" ;;
+    github) upstream_url=https://github.com/astra-sim/astra-sim.git ;;
+    *) die "ASTRA_TABLE7_MIRROR must be gitee or github" ;;
+esac
 
 check_bundle() {
     command -v sha256sum >/dev/null || die "sha256sum is required"
@@ -53,13 +68,28 @@ prepare() {
     fi
     [[ ! -e "$source_root" ]] || die "$source_root exists without a valid marker; move it aside and retry"
     command -v git >/dev/null || die "git is required"
-    git clone --filter=blob:none --no-checkout "$upstream_url" "$source_root"
+    git clone --filter=blob:none --no-checkout "$upstream_url" "$source_root" \
+        || die "unable to clone ASTRA-Sim from $source_mirror"
     git -C "$source_root" checkout --detach "$upstream_commit"
-    git -C "$source_root" submodule update --init --recursive
+    if [[ "$source_mirror" == gitee ]]; then
+        while read -r path repository; do
+            git -C "$source_root" config "submodule.$path.url" "$gitee_root/$repository.git"
+        done <<'EOF'
+extern/graph_frontend/chakra chakra
+extern/helper/fmt fmt
+extern/helper/spdlog spdlog
+extern/network_backend/ns-3 astra-network-ns3
+extern/remote_memory_backend/analytical astra-memory-analytical
+EOF
+    fi
+    git -C "$source_root" submodule update --init --depth 1 --jobs "$fetch_jobs" \
+        "${required_submodules[@]}" \
+        || die "unable to fetch ASTRA-Sim submodules from $source_mirror"
     git -C "$source_root" apply "$bundle_root/astra-ras-ns3.patch"
     cp -a "$bundle_root/overlay/." "$source_root/"
-    printf 'upstream=%s\ncommit=%s\nbundle_sha256=%s\n' \
-        "$upstream_url" "$upstream_commit" "$(sha256sum "$bundle_root/CHECKSUMS.sha256" | cut -d' ' -f1)" >"$marker"
+    printf 'mirror=%s\nupstream=%s\ncommit=%s\nbundle_sha256=%s\n' \
+        "$source_mirror" "$upstream_url" "$upstream_commit" \
+        "$(sha256sum "$bundle_root/CHECKSUMS.sha256" | cut -d' ' -f1)" >"$marker"
     check_source
 }
 
