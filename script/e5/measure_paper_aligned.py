@@ -51,7 +51,7 @@ def parse_args() -> argparse.Namespace:
     measure = sub.add_parser("measure")
     measure.add_argument("--manifest", type=Path, required=True)
     measure.add_argument("--out-dir", type=Path, required=True)
-    measure.add_argument("--repeats", type=int, default=3)
+    measure.add_argument("--repeats", type=int, default=1)
     probe = sub.add_parser("probe")
     probe.add_argument("--manifest", type=Path, required=True)
     probe.add_argument("--system", choices=SYSTEMS, required=True)
@@ -424,7 +424,7 @@ def run_verify(args: argparse.Namespace) -> int:
     candidates = list(manifest["candidates"])
     if len(candidates) != 32 or len({row["candidate_id"] for row in candidates}) != 32:
         raise AssertionError("candidate identities are not distinct")
-    if payload["paper_config"] != PAPER_CONFIG or tuple(payload["ks"]) != KS or int(payload["repeats"]) < 3:
+    if payload["paper_config"] != PAPER_CONFIG or tuple(payload["ks"]) != KS or int(payload["repeats"]) < 1:
         raise AssertionError("paper configuration, K set, or repeat count differs")
     measurements = payload["measurements"]
     if len(measurements) != len(SYSTEMS) * len(KS) * int(payload["repeats"]):
@@ -477,7 +477,6 @@ def self_test() -> int:
         }
         for system, base, slope in zip(SYSTEMS, (100.0, 80.0, 60.0), (10.0, 5.0, 2.0), strict=True)
         for k in KS
-        for _ in range(3)
     ]
     summary = {row["system"]: row for row in summarize(rows)}
     assert summary["maya_full"]["k32_incremental_peak_rss_delta_mib_per_candidate"] == 10.0

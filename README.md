@@ -94,22 +94,39 @@ Run the complete workflow once on the coordinator:
 script/run_all
 ```
 
-`script/run_all` is a thin aggregate of the five experiment entry points:
+`script/run_all` calls the five experiment entry points in order:
 `script/run_e1`, `script/run_e2`, `script/run_e3`, `script/run_e4`, and
 `script/run_e5`. Each entry point performs its required trace validation or
 measurements, followed by table construction and plotting. Distributed entries
 start and wait for the peer automatically; do not start a matching command
 there.
 
-Figure 5 uses the deterministic trace-based route by default. To run its
+Approximate wall-clock times on the provided reviewer server, after setup, are:
+
+| Entry point | Approximate time |
+| --- | ---: |
+| `script/run_e1` | less than 1 minute |
+| `script/run_e2` | about 1.5 hours |
+| `script/run_e3` | about 2 hours |
+| `script/run_e4` | about 5.5 hours |
+| `script/run_e5` | about 35 minutes |
+| `script/run_all` | about 9.5 hours |
+
+Reserve roughly 10 hours for `script/run_all` to allow for system load and the
+first ASTRA-Sim build. These estimates exclude `script/setup` and use the
+default trace-based Figure 5 path. Table 7 cases and Table 8 memory cells run
+once. Table 6 replay timing and E5 per-round speedup retain short repetitions
+for their wall-clock medians.
+
+Figure 5 uses the trace-based route by default. To run its
 current-server 8/16-GPU variant instead, use:
 
 ```bash
 FIGURE5_MODE=native script/run_all
 ```
 
-The native variant is a separate current-environment result and is not mixed
-with the supplied 32/64/128-GPU trace points.
+The native variant reports the current server only and is not mixed with the
+supplied 32/64/128-GPU trace points.
 
 The workflow stops at the first failure. Success ends with:
 
@@ -133,9 +150,8 @@ E1 cannot run its original 16-node job on the reviewer server. It validates
 the raw trace coverage, Time direction, and A2A trajectory before reconstructing
 Figure 1 from the fingerprinted ledger. It does not use FakeCUDA or the current
 16 GPUs to replace the original Drop/Reroute measurements. E2 reconstructs the
-paper-facing Figure 5 by default; its optional native mode generates only the
-current 8/16-GPU results. Every E3--E5 measurement is generated during the
-current run.
+paper Figure 5 by default; its optional native mode generates only the current
+8/16-GPU results. Every E3--E5 measurement is generated during the current run.
 
 Generated artifacts are written below:
 
@@ -150,9 +166,8 @@ trace/
 plot/
 ```
 
-E5's full capture stays in the guarded server run directory because it is
-large; its final Table 8 and speedup tables are copied to the result directory
-above.
+E5's full capture stays in the server run directory because it is large; its
+final Table 8 and speedup tables are copied to the result directory above.
 
 The supplied trace links under `large-cluster/` target mounts on the evaluation
 server and may be broken in another clone. Equivalent mounts can be selected
@@ -166,7 +181,7 @@ export FIGURE5_ESTIMATOR_MODEL=/path/to/independent-estimator.json
 
 ## Environment requirements
 
-The setup check enforces the reviewer-server contract:
+The setup check verifies the following reviewer-server requirements:
 
 - Linux x86-64 on the configured shared filesystem;
 - two nodes, each with eight NVIDIA A100-SXM4-80GB GPUs and full NV12 topology;

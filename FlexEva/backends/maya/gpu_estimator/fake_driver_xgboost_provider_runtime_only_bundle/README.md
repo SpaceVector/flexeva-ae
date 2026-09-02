@@ -1,10 +1,10 @@
 # Fake Driver XGBoost Runtime Provider Bundle
 
-This bundle is the minimal runtime package for operator-level latency prediction.
-You can use it directly in a fake-driver integration.
-You do not need to run profiling or retraining before using it.
+This bundle provides operator-level latency prediction for the fake-driver
+integration. It does not require profiling or retraining.
 
 Included runtime support:
+
 - cuBLAS GEMM-like APIs:
   - `cublasSgemm`
   - `cublasGemmEx`
@@ -31,6 +31,7 @@ pip install -r requirements.txt
 ```
 
 Required packages:
+
 - `numpy`
 - `xgboost`
 

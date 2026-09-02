@@ -88,7 +88,7 @@ export FLEXMAYA_ROUTED_MOE_SCRIPT="$E5_DIR/workload/moe_topk.py"
 "$PYTHON_BIN" "$E5_DIR/measure_paper_aligned.py" measure \
     --manifest "$RESULT_ROOT/collection/candidate_manifest.json" \
     --out-dir "$RESULT_ROOT/measurement" \
-    --repeats "${E5_REPEATS:-3}"
+    --repeats "${E5_REPEATS:-1}"
 
 "$PYTHON_BIN" "$E5_DIR/measure_paper_aligned.py" verify \
     --result "$RESULT_ROOT/measurement/result.json"

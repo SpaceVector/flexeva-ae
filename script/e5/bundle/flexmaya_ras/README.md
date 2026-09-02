@@ -1,9 +1,7 @@
-# FlexMaya RAS (frozen E5 source)
+# FlexMaya RAS (E5 source snapshot)
 
-This package is the evaluator implementation retained for the submitted-value
-Table 8 audit. The primary artifact implementation is under `FlexEva/`; this
-copy remains frozen so the archived measurement can be reproduced against its
-original source.
+This is the FlexMaya RAS source used by E5. The main implementation is under
+`FlexEva/`; E5 stages this snapshot so every run uses the same source.
 
 The data path is:
 

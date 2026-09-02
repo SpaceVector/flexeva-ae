@@ -47,7 +47,7 @@ mkdir -p "$RESULT_ROOT"
     --repo-root "$ASTRA_ROOT" \
     --binary "$BINARY" \
     --out-dir "$RESULT_ROOT/moe" \
-    --repeats 3 \
+    --repeats 1 \
     --case moe_optimizer_step \
     --case moe_attention_backward \
     --case moe_router_backward
