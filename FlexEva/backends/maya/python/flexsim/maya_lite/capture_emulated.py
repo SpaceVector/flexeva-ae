@@ -117,8 +117,8 @@ _FAKECUDA_LIBRARY_NAMES = (
 
 @lru_cache(maxsize=None)
 def _derive_fakecuda_runtime_env(python_bin: str) -> dict[str, str]:
-    resolved_python_bin = Path(python_bin).resolve()
-    env_root = resolved_python_bin.parent.parent
+    python_path = Path(python_bin).absolute()
+    env_root = python_path.parent.parent
     resolved: dict[str, str] = {
         "FAKECUDA_TARGET_ENV_ROOT": str(env_root),
         "FAKECUDA_FRUN_QUIET": "1",
@@ -1264,15 +1264,16 @@ def _capture_worker_command_and_env(
     communicator_path.unlink(missing_ok=True)
     trace_temp_path.unlink(missing_ok=True)
     frun_path = args.frun.resolve()
+    python_bin = args.python_bin.absolute()
     command = [
         str(frun_path),
-        str(args.python_bin.resolve()),
+        str(python_bin),
         str(args.script.resolve()),
         *script_args,
     ]
     trace_flush_mode, trace_flush_every, trace_stdio_buffer_bytes = _resolve_trace_flush_policy(args)
     env = os.environ.copy()
-    env.update(_derive_fakecuda_runtime_env(str(args.python_bin)))
+    env.update(_derive_fakecuda_runtime_env(str(python_bin)))
     _apply_capture_bootstrap_env_defaults(env)
     env["FAKECUDA_TRACE"] = "1"
     env["FAKECUDA_TRACE_PATH"] = str(trace_temp_path)
@@ -1344,7 +1345,7 @@ def _capture_worker_command_and_env(
         prefix, proot_ld_library_path = direct_proot_prefix
         command = [
             *prefix,
-            str(args.python_bin.resolve()),
+            str(python_bin),
             str(args.script.resolve()),
             *script_args,
         ]

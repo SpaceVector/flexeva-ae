@@ -502,6 +502,8 @@ def test_capture_emulated_measure_mode_ignores_profile_env_in_worker_command(tmp
         args=args,
         profiled_index=0,
         representative_rank=0,
+        rank_host_machines={},
+        rank_host_dispatch_queues={},
         script_args=[],
         repo_root=str(repo_root),
         python_root=str(repo_root / "python"),
@@ -621,6 +623,8 @@ def test_capture_emulated_worker_command_sets_bootstrap_diag_path_from_env(
         args=args,
         profiled_index=0,
         representative_rank=3,
+        rank_host_machines={},
+        rank_host_dispatch_queues={},
         script_args=[],
         repo_root=str(repo_root),
         python_root=str(repo_root / "python"),
@@ -693,6 +697,8 @@ def test_capture_worker_command_uses_direct_proot_prefix_when_layout_is_availabl
         args=args,
         profiled_index=0,
         representative_rank=0,
+        rank_host_machines={},
+        rank_host_dispatch_queues={},
         script_args=[],
         repo_root=str(repo_root),
         python_root=str(repo_root / "python"),
@@ -703,7 +709,7 @@ def test_capture_worker_command_uses_direct_proot_prefix_when_layout_is_availabl
     assert env["FLEXSIM_MAYA_CAPTURE_LAUNCHER"] == "direct_proot"
     assert "-b" in command
     assert command[-2:] == [
-        str(python_bin.resolve()),
+        str(python_bin.absolute()),
         str(args.script.resolve()),
     ]
 
@@ -783,6 +789,8 @@ def test_capture_worker_command_falls_back_to_frun_without_direct_proot_layout(
         args=args,
         profiled_index=0,
         representative_rank=0,
+        rank_host_machines={},
+        rank_host_dispatch_queues={},
         script_args=[],
         repo_root=str(repo_root),
         python_root=str(repo_root / "python"),
@@ -1018,8 +1026,8 @@ def test_derive_fakecuda_runtime_env_prefers_explicit_env_root_layout(tmp_path: 
 
     resolved = _derive_fakecuda_runtime_env(str(python_bin))
 
-    assert resolved["FAKECUDA_TARGET_ENV_ROOT"] == str(env_root.resolve())
-    assert resolved["FAKECUDA_SITE_PACKAGES_ROOT"] == str(site_packages.resolve())
+    assert resolved["FAKECUDA_TARGET_ENV_ROOT"] == str(env_root.absolute())
+    assert resolved["FAKECUDA_SITE_PACKAGES_ROOT"] == str(site_packages.absolute())
     assert resolved["FAKECUDA_FRUN_QUIET"] == "1"
     assert resolved["FAKECUDA_SKIP_LDCONFIG"] == "1"
     assert resolved["TARGET_CUDART"].endswith("libcudart.so.12")
