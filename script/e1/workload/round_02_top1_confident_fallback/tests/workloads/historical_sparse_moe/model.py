@@ -164,30 +164,37 @@ class HistoricalTop2PackedMoE(nn.Module):
             return flat.new_zeros(flat.shape), 0.0
 
         device = flat.device
+        compat_routing = flat.is_cuda and _fakecuda_eval_compat_enabled()
+        metadata_device = torch.device("cpu") if compat_routing else device
         hidden_size = flat.size(1)
         ep_rank = dist.get_rank(group=self.ep_group) if _dist_ready() else 0
 
-        token_tensor = torch.tensor(assigned_tokens, dtype=torch.long, device=device)
-        expert_tensor = torch.tensor(assigned_experts, dtype=torch.long, device=device)
-        score_tensor = torch.tensor(assigned_scores, dtype=flat.dtype, device=device)
+        token_tensor = torch.tensor(assigned_tokens, dtype=torch.long, device=metadata_device)
+        expert_tensor = torch.tensor(assigned_experts, dtype=torch.long, device=metadata_device)
+        score_tensor = torch.tensor(assigned_scores, dtype=flat.dtype, device=metadata_device)
 
         dest_ranks = torch.div(expert_tensor, self.num_local_experts, rounding_mode="floor")
         local_expert_ids = torch.remainder(expert_tensor, self.num_local_experts)
 
-        order = torch.arange(dest_ranks.numel(), device=device)
+        order = torch.arange(dest_ranks.numel(), device=metadata_device)
         order = order[torch.argsort(token_tensor[order], stable=True)]
         order = order[torch.argsort(local_expert_ids[order], stable=True)]
         order = order[torch.argsort(dest_ranks[order], stable=True)]
 
-        ordered_hidden = flat[token_tensor[order]]
-        ordered_scores = score_tensor[order]
-        ordered_origin = token_tensor[order]
-        ordered_dest = dest_ranks[order]
-        ordered_local_experts = local_expert_ids[order]
-        ordered_sources = torch.full_like(ordered_dest, ep_rank)
+        ordered_origin_metadata = token_tensor[order]
+        ordered_dest_metadata = dest_ranks[order]
+        ordered_local_experts_metadata = local_expert_ids[order]
+        ordered_sources_metadata = torch.full_like(ordered_dest_metadata, ep_rank)
+        ordered_hidden = flat[ordered_origin_metadata.to(device)]
+        ordered_scores = score_tensor[order].to(device)
+        ordered_origin = ordered_origin_metadata.to(device)
+        ordered_local_experts = ordered_local_experts_metadata.to(device)
+        ordered_sources = ordered_sources_metadata.to(device)
 
-        send_splits = torch.bincount(ordered_dest, minlength=self.ep_size).tolist()
-        recv_splits = _all_to_all_counts(send_splits, device, self.ep_group)
+        send_splits = torch.bincount(ordered_dest_metadata, minlength=self.ep_size).tolist()
+        if sum(send_splits) != ordered_hidden.size(0):
+            raise RuntimeError("packed dispatch send splits do not match the payload")
+        recv_splits = _all_to_all_counts(send_splits, metadata_device, self.ep_group)
 
         recv_hidden = _all_to_all_2d(ordered_hidden, send_splits, recv_splits, hidden_size, self.ep_group)
         recv_scores = _all_to_all_1d(ordered_scores, send_splits, recv_splits, self.ep_group)
@@ -197,13 +204,23 @@ class HistoricalTop2PackedMoE(nn.Module):
 
         local_outputs = torch.zeros_like(recv_hidden)
         for local_idx, expert in enumerate(self.experts):
-            mask = recv_local_experts == local_idx
-            if mask.any():
-                local_outputs[mask] = expert(recv_hidden[mask]) * recv_scores[mask].unsqueeze(-1)
+            if compat_routing:
+                selected = torch.nonzero(ordered_local_experts_metadata == local_idx).flatten()
+                if selected.numel():
+                    selected = selected.to(device)
+                    local_outputs[selected] = expert(recv_hidden[selected]) * recv_scores[selected].unsqueeze(-1)
+            else:
+                mask = recv_local_experts == local_idx
+                if mask.any():
+                    local_outputs[mask] = expert(recv_hidden[mask]) * recv_scores[mask].unsqueeze(-1)
 
-        send_back_order = torch.argsort(recv_sources, stable=True)
-        send_back_splits = torch.bincount(recv_sources, minlength=self.ep_size).tolist()
-        recv_back_splits = _all_to_all_counts(send_back_splits, device, self.ep_group)
+        recv_sources_metadata = ordered_sources_metadata if compat_routing else recv_sources
+        send_back_order = torch.argsort(recv_sources_metadata, stable=True)
+        send_back_splits = torch.bincount(recv_sources_metadata, minlength=self.ep_size).tolist()
+        if sum(send_back_splits) != local_outputs.size(0):
+            raise RuntimeError("packed dispatch return splits do not match the payload")
+        recv_back_splits = _all_to_all_counts(send_back_splits, metadata_device, self.ep_group)
+        send_back_order = send_back_order.to(device)
 
         returned_hidden = _all_to_all_2d(
             local_outputs[send_back_order],

@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
+PYTHON_BIN="${PYTHON_BIN:-$ROOT/.venv/bin/python}"
+MAYA_ROOT="${MAYA_ROOT:-$ROOT/FlexEva/backends/maya}"
+PROOT_BIN="${PROOT_BIN:-$ROOT/.deps/proot-5.3.1/bin/proot}"
+WORKLOAD="$ROOT/script/e1/workload/round_01_packed_variable_dispatch/tests/workloads/historical_sparse_moe"
+
+[[ $# == 0 ]] || { echo "usage: script/e1/check_round1_capture" >&2; exit 2; }
+test -x "$PYTHON_BIN" || { echo "check_round1_capture: run script/setup first" >&2; exit 2; }
+test -x "$MAYA_ROOT/fake-cuda/frun" || { echo "check_round1_capture: FakeCUDA is unavailable" >&2; exit 2; }
+test -x "$PROOT_BIN" || { echo "check_round1_capture: PRoot is unavailable" >&2; exit 2; }
+
+TMP_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/flexeva-round1-capture.XXXXXX")"
+trap 'rm -r -- "$TMP_ROOT"' EXIT
+
+"$PYTHON_BIN" - "$WORKLOAD/configs/gshard_style_fastloop.json" "$TMP_ROOT/config.json" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+config = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+config["target_id"] = "round1_fakecuda_regression"
+config["model"].update(vocab_size=32, sequence_length=4, num_layers=2, hidden_size=8, num_attention_heads=2, ffw_multiplier=2, min_capacity=1)
+config["optimization"].update(global_batch_size=1, fp16=False)
+Path(sys.argv[2]).write_text(json.dumps(config), encoding="utf-8")
+PY
+
+env \
+    "PYTHONPATH=$MAYA_ROOT:$MAYA_ROOT/python${PYTHONPATH:+:$PYTHONPATH}" \
+    "FAKECUDA_PROOT_BIN=$PROOT_BIN" \
+    "FAKECUDA_TARGET_ENV_ROOT=${FAKECUDA_TARGET_ENV_ROOT:-$(cd -- "$(dirname -- "$PYTHON_BIN")/.." && pwd)}" \
+    FLEXSIM_MAYA_SAFE_ROUTING=1 \
+    FLEXSIM_MAYA_SAFE_TOPK=1 \
+    "$PYTHON_BIN" "$MAYA_ROOT/python/flexsim/maya_lite/capture_emulated.py" \
+        --output-dir "$TMP_ROOT/capture" \
+        --logical-world-size 128 \
+        --auto-profiled-strategy single \
+        --frun "$MAYA_ROOT/fake-cuda/frun" \
+        --python-bin "$PYTHON_BIN" \
+        --local-device-span 8 \
+        --max-concurrent-workers 1 \
+        --collective-mode compat \
+        --trace-surface semantic \
+        --host-timing-mode none \
+        --trim-to-step-window \
+        --capture-step-window-step 1 \
+        "$WORKLOAD/train.py" -- \
+        --config "$TMP_ROOT/config.json" \
+        --train-iters 1 \
+        --benchmark-warmup-steps 0 \
+        --benchmark-measure-steps 1 \
+        --output-json "$TMP_ROOT/result.json"
+
+"$PYTHON_BIN" - "$TMP_ROOT/result.json" "$ROOT" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    result = json.load(handle)
+assert result["status"] == "complete"
+assert result["world_size"] == 128
+
+root = Path(sys.argv[2])
+sys.path.insert(0, str(root / "script/e1"))
+from collect_results import changed_lines
+
+workloads = root / "script/e1/workload"
+changed_lines(workloads / "round_00_baseline", workloads / "round_01_packed_variable_dispatch")
+PY
+
+echo "E1 Round 1 FakeCUDA capture: PASS"

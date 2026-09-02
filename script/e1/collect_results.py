@@ -68,7 +68,9 @@ def changed_lines(before: Path, after: Path) -> tuple[int, int]:
         raise RuntimeError(completed.stderr.strip() or "git diff --no-index failed")
     added = deleted = 0
     for line in completed.stdout.splitlines():
-        left, right, _ = line.split("\t", 2)
+        left, right, path = line.split("\t", 2)
+        if "/__pycache__/" in path:
+            continue
         if left == "-" or right == "-":
             raise ValueError("E1 source snapshots contain a binary change")
         added += int(left)

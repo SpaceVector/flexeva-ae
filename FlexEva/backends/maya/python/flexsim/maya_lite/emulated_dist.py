@@ -642,16 +642,14 @@ class EmulatedProcessGroup:
     ) -> None:
         world = max(self.size, 1)
         if input_split_sizes is None:
-            assert input_tensor.numel() % world == 0
-            input_split_sizes = [input_tensor.numel() // world] * world
+            assert input_tensor.size(0) % world == 0
+            input_split_sizes = [input_tensor.size(0) // world] * world
         if output_split_sizes is None:
-            assert output.numel() % world == 0
-            output_split_sizes = [output.numel() // world] * world
+            assert output.size(0) % world == 0
+            output_split_sizes = [output.size(0) // world] * world
 
-        flat_input = input_tensor.reshape(-1)
-        flat_output = output.reshape(-1)
-        input_chunks = list(flat_input.split(tuple(int(size) for size in input_split_sizes)))
-        output_chunks = list(flat_output.split(tuple(int(size) for size in output_split_sizes)))
+        input_chunks = list(input_tensor.split(tuple(int(size) for size in input_split_sizes), dim=0))
+        output_chunks = list(output.split(tuple(int(size) for size in output_split_sizes), dim=0))
 
         runtime_output_chunks = output_chunks
         if self._collective_ready(input_tensor):
@@ -663,7 +661,7 @@ class EmulatedProcessGroup:
             if self.collective_mode == "trace_only":
                 scratch_output = torch.empty_like(output)
                 runtime_output_chunks = list(
-                    scratch_output.reshape(-1).split(tuple(int(size) for size in output_split_sizes))
+                    scratch_output.split(tuple(int(size) for size in output_split_sizes), dim=0)
                 )
             with torch.cuda.stream(comm_stream):
                 self.runtime.group_start()
@@ -688,12 +686,12 @@ class EmulatedProcessGroup:
             _zero_tensor_contents(output)
             return
 
-        copy_count = min(flat_output.numel(), flat_input.numel())
+        copy_count = min(output.size(0), input_tensor.size(0))
         with torch.no_grad():
             if copy_count > 0:
-                flat_output[:copy_count].copy_(flat_input[:copy_count])
-            if flat_output.numel() > copy_count:
-                flat_output[copy_count:].zero_()
+                output[:copy_count].copy_(input_tensor[:copy_count])
+            if output.size(0) > copy_count:
+                output[copy_count:].zero_()
 
     def send(self, tensor: torch.Tensor, *, peer_group_rank: int) -> None:
         work = self.send_async(tensor, peer_group_rank=peer_group_rank)
