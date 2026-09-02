@@ -80,7 +80,7 @@ from flexsim.estimator import Estimator
 checks = {
     "Python": (platform.python_version(), "3.12.13"),
     "NumPy": (numpy.__version__, "2.2.6"),
-    "scikit-learn": (sklearn.__version__, "1.7.2"),
+    "scikit-learn": (sklearn.__version__, "1.8.0"),
     "XGBoost": (xgboost.__version__, "3.2.0"),
     "PyTorch": (str(torch.__version__), "2.8.0+cu128"),
     "PyTorch CUDA": (torch.version.cuda, "12.8"),
