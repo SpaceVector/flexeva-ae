@@ -97,10 +97,12 @@ if [[ "$LOCAL_ONLY" == 0 ]]; then
         echo "setup: cannot select one NCCL interface for both AE nodes" >&2
         exit 2
     }
-    NCCL_SOCKET_IFNAME="$LOCAL_NCCL_IFACE"
+    NCCL_IB_DISABLE=1
+    NCCL_SOCKET_IFNAME="=$LOCAL_NCCL_IFACE"
     FLEXMAYA_PEER_REPO_ROOT="$PEER_REPO_ROOT"
     FLEXMAYA_PEER_NODE_ROOT="${FLEXMAYA_PEER_NODE_ROOT:-${PEER_REPO_ROOT%/*}}"
-    export FLEXMAYA_PEER_REPO_ROOT FLEXMAYA_PEER_NODE_ROOT NCCL_SOCKET_IFNAME
+    export FLEXMAYA_PEER_REPO_ROOT FLEXMAYA_PEER_NODE_ROOT
+    export NCCL_IB_DISABLE NCCL_SOCKET_IFNAME
     mkdir -p "$ROOT/.deps"
     AE_PROFILE="$ROOT/.deps/ae_env.sh"
     (
@@ -109,7 +111,7 @@ if [[ "$LOCAL_ONLY" == 0 ]]; then
             for name in AE_NODE_ROOT FLEXMAYA_MASTER_ADDR FLEXMAYA_MASTER_PORT \
                 FLEXMAYA_CONTROL_PORT FLEXMAYA_PEER_TARGET FLEXMAYA_PEER_PORT \
                 FLEXMAYA_PEER_REPO_ROOT FLEXMAYA_PEER_NODE_ROOT \
-                NCCL_SOCKET_IFNAME; do
+                NCCL_IB_DISABLE NCCL_SOCKET_IFNAME; do
                 printf 'export %s=%q\n' "$name" "${!name}"
             done
         } >"$AE_PROFILE"
@@ -240,5 +242,6 @@ if [[ "$LOCAL_ONLY" == 0 ]]; then
     echo "setup: preparing peer node"
     "$SSH_BIN" "${SSH_ARGS[@]}" "$PEER_TARGET" \
         "cd '$PEER_REPO_ROOT' && FLEXEVA_SETUP_LOCAL_ONLY=1 ./script/setup"
+    "$ROOT/script/check_nccl"
     echo "AE two-node setup: PASS"
 fi

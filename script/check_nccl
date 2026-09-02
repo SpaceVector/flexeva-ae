@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+PYTHON_BIN="${PYTHON_BIN:-$ROOT/.venv/bin/python}"
+source "$ROOT/script/lib/ae_env.sh"
+
+for name in FLEXMAYA_MASTER_ADDR FLEXMAYA_CONTROL_PORT FLEXMAYA_PEER_TARGET \
+    FLEXMAYA_PEER_PORT FLEXMAYA_PEER_REPO_ROOT NCCL_IB_DISABLE \
+    NCCL_SOCKET_IFNAME; do
+    [[ -n "${!name:-}" ]] || { echo "NCCL check: missing $name" >&2; exit 2; }
+done
+[[ -x "$PYTHON_BIN" ]] || { echo "NCCL check: Python is unavailable: $PYTHON_BIN" >&2; exit 2; }
+[[ "$NCCL_IB_DISABLE" == 1 ]] || { echo "NCCL check: NCCL_IB_DISABLE must be 1" >&2; exit 2; }
+[[ "$NCCL_SOCKET_IFNAME" =~ ^=?[A-Za-z0-9_.:-]+$ ]] \
+    || { echo "NCCL check: invalid NCCL_SOCKET_IFNAME" >&2; exit 2; }
+[[ "$FLEXMAYA_CONTROL_PORT" =~ ^[0-9]+$ ]] \
+    || { echo "NCCL check: invalid control port" >&2; exit 2; }
+CHECK_PORT=$((FLEXMAYA_CONTROL_PORT + 8))
+(( CHECK_PORT <= 65535 )) || { echo "NCCL check: control port leaves no probe port" >&2; exit 2; }
+
+PEER_PYTHON="${FLEXMAYA_PEER_PYTHON:-$FLEXMAYA_PEER_REPO_ROOT/.venv/bin/python}"
+SMOKE_CODE='import os; from datetime import timedelta; import torch; import torch.distributed as dist; rank=int(os.environ["RANK"]); torch.cuda.set_device(0); device=torch.device("cuda:0"); dist.init_process_group("nccl", device_id=device, timeout=timedelta(seconds=60)); value=torch.tensor([rank + 1.0], device=device); dist.all_reduce(value); assert value.item() == 3.0, value.item(); dist.destroy_process_group()'
+COMMON_ENV=(
+    /usr/bin/env
+    CUDA_VISIBLE_DEVICES=0
+    "NCCL_IB_DISABLE=$NCCL_IB_DISABLE"
+    "NCCL_SOCKET_IFNAME=$NCCL_SOCKET_IFNAME"
+    TORCH_NCCL_ASYNC_ERROR_HANDLING=1
+)
+PEER_COMMAND=(
+    "${COMMON_ENV[@]}"
+    "$PEER_PYTHON" -m torch.distributed.run
+    --nnodes=2 --nproc-per-node=1 --node-rank=1
+    "--master-addr=$FLEXMAYA_MASTER_ADDR" "--master-port=$CHECK_PORT"
+    --no-python "$PEER_PYTHON" -c "$SMOKE_CODE"
+)
+printf -v PEER_SHELL '%q ' "${PEER_COMMAND[@]}"
+SSH_ARGS=(-o BatchMode=yes -o ConnectTimeout=10 \
+    -o ServerAliveInterval=10 -o ServerAliveCountMax=3 -p "$FLEXMAYA_PEER_PORT")
+
+peer_pid=""
+cleanup() {
+    if [[ -n "$peer_pid" ]] && kill -0 "$peer_pid" 2>/dev/null; then
+        kill -TERM "$peer_pid" 2>/dev/null || true
+        wait "$peer_pid" 2>/dev/null || true
+    fi
+}
+trap cleanup EXIT
+trap 'exit 130' INT TERM HUP
+ssh "${SSH_ARGS[@]}" "$FLEXMAYA_PEER_TARGET" "$PEER_SHELL" &
+peer_pid=$!
+sleep 1
+
+set +e
+"${COMMON_ENV[@]}" \
+    "$PYTHON_BIN" -m torch.distributed.run \
+    --nnodes=2 --nproc-per-node=1 --node-rank=0 \
+    "--master-addr=$FLEXMAYA_MASTER_ADDR" "--master-port=$CHECK_PORT" \
+    --no-python "$PYTHON_BIN" -c "$SMOKE_CODE"
+local_exit=$?
+wait "$peer_pid"
+peer_exit=$?
+set -e
+peer_pid=""
+trap - EXIT INT TERM HUP
+
+(( local_exit == 0 && peer_exit == 0 )) \
+    || { echo "NCCL check: all_reduce failed (local=$local_exit peer=$peer_exit)" >&2; exit 1; }
+echo "two-node NCCL all_reduce check: PASS"
