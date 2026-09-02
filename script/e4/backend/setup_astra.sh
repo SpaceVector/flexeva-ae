@@ -56,6 +56,10 @@ check_source() {
     [[ $(git -C "$source_root" rev-parse HEAD) == "$upstream_commit" ]] || die "unexpected ASTRA-Sim commit"
     [[ $(git -C "$source_root/extern/graph_frontend/chakra" rev-parse HEAD) == "$chakra_commit" ]] || die "unexpected Chakra commit"
     (cd "$source_root" && sha256sum --quiet -c "$bundle_root/INSTALLED_CHECKSUMS.sha256") || die "installed source checksum mismatch"
+    PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python \
+    PYTHONPATH="$source_root/extern/graph_frontend${PYTHONPATH:+:$PYTHONPATH}" \
+        "$python_bin" -c 'from chakra.schema.protobuf import et_def_pb2' \
+        || die "Chakra protobuf Python bindings are unavailable"
     "$python_bin" "$source_root/scripts/measure_table7_backend_generality.py" self-test
 }
 
