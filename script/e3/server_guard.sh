@@ -7,6 +7,7 @@ run_dir=""
 run_status="not_started"
 load_stopped=0
 run_lock_fd=""
+interrupted_exit=0
 load_control="${AE_GPU_LOAD_CONTROL:-none}"
 expected_filesystem="${AE_EXPECTED_FILESYSTEM:-gpfs}"
 
@@ -417,7 +418,9 @@ case "$action" in
             load_stopped=1
             trap restore_load EXIT
         fi
-        trap 'exit 130' INT TERM HUP
+        trap 'interrupted_exit=130' INT
+        trap 'interrupted_exit=143' TERM
+        trap 'interrupted_exit=129' HUP
         if [[ $load_control != none ]]; then
             "$load_control" stop > "$run_dir/gpu-load-stop.log" 2>&1 \
                 || blocked "failed to stop GPU load task"
@@ -455,6 +458,7 @@ case "$action" in
         ) > >(tee "$run_dir/stdout.log") 2> >(tee "$run_dir/stderr.log" >&2)
         command_exit_code=$?
         set -e
+        (( interrupted_exit == 0 )) || command_exit_code=$interrupted_exit
 
         if (( command_exit_code == 0 )); then
             run_status="completed"
