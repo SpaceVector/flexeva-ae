@@ -113,20 +113,9 @@ Approximate wall-clock times on the provided reviewer server, after setup, are:
 | `script/run_all` | about 9.5 hours |
 
 Reserve roughly 10 hours for `script/run_all` to allow for system load and the
-first ASTRA-Sim build. These estimates exclude `script/setup` and use the
-default trace-based Figure 5 path. Table 7 cases and Table 8 memory cells run
-once. Table 6 replay timing and E5 per-round speedup retain short repetitions
-for their wall-clock medians.
-
-Figure 5 uses the trace-based route by default. To run its
-current-server 8/16-GPU variant instead, use:
-
-```bash
-FIGURE5_MODE=native script/run_all
-```
-
-The native variant reports the current server only and is not mixed with the
-supplied 32/64/128-GPU trace points.
+first ASTRA-Sim build. These estimates exclude `script/setup`. Table 7 cases
+and Table 8 memory cells run once. Table 6 replay timing and E5 per-round
+speedup retain short repetitions for their wall-clock medians.
 
 The workflow stops at the first failure. Success ends with:
 
@@ -139,26 +128,22 @@ AE full reproduction: PASS (<run-id>)
 Generated result tables and PDFs are not tracked. They are created by the
 experiment entry points and ignored by Git.
 
-The supplied large-scale inputs are:
-
-- E1: five 128-GPU raw trace sets and one historical trajectory ledger whose
-  rows carry the original benchmark, patch, and log SHA-256 fingerprints;
-- E2: the 32-, 64-, and 128-GPU traces plus the source measurements used for
-  Figure 5's limited trace-based reproduction.
+The supplied E1 inputs contain five 128-GPU raw trace sets and one historical
+trajectory ledger whose rows carry the original benchmark, patch, and log
+SHA-256 fingerprints.
 
 E1 cannot run its original 16-node job on the reviewer server. It validates
 the raw trace coverage, Time direction, and A2A trajectory before reconstructing
 Figure 1 from the fingerprinted ledger. It does not use FakeCUDA or the current
-16 GPUs to replace the original Drop/Reroute measurements. E2 reconstructs the
-paper Figure 5 by default; its optional native mode generates only the current
-8/16-GPU results. Every E3--E5 measurement is generated during the current run.
+16 GPUs to replace the original Drop/Reroute measurements. Every E3--E5
+measurement is generated during the current run.
 
 Generated artifacts are written below:
 
 ```text
 result/e1/generated/<run-id>/
 result/e2/generated/table4/<run-id>/
-result/e2/generated/figure5/<run-id>/{trace,native}/
+result/e2/generated/figure5/<run-id>/
 result/e3/generated/{figure6,figure7,figure8}/<run-id>/
 result/e4/generated/<run-id>/
 result/e5/generated/<run-id>/
@@ -175,8 +160,6 @@ with:
 
 ```bash
 export E1_TRACE_ROOT=/path/to/historical_sparse_moe
-export FIGURE5_LARGE_CLUSTER_ROOT=/path/to/figure5-large-cluster
-export FIGURE5_ESTIMATOR_MODEL=/path/to/independent-estimator.json
 ```
 
 ## Environment requirements
