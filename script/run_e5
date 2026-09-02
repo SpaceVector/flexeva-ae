@@ -5,42 +5,47 @@ ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 PYTHON_BIN="${PYTHON_BIN:-$ROOT/.venv/bin/python}"
 MODE="${1:-run}"
 
-[[ $# -le 1 ]] || { echo "usage: script/run_e5 [run|audit|verify|paper|paper-self-test|paper-verify]" >&2; exit 2; }
+[[ $# -le 1 ]] || { echo "usage: script/run_e5 [run|self-test|verify]" >&2; exit 2; }
 if [[ "$PYTHON_BIN" != */* ]]; then
     PYTHON_BIN="$(command -v "$PYTHON_BIN" || true)"
 fi
 [[ -n "$PYTHON_BIN" ]] || { echo "run_e5: Python is unavailable" >&2; exit 2; }
 PYTHON_BIN="$(cd -- "$(dirname -- "$PYTHON_BIN")" && pwd -P)/$(basename -- "$PYTHON_BIN")"
 
-(cd "$ROOT" && sha256sum --quiet -c script/e5/CHECKSUMS.sha256)
-
 case "$MODE" in
-    run)
-        "$PYTHON_BIN" "$ROOT/script/e5/verify_table8.py" --require-paper-values
-        PYTHON_BIN="$PYTHON_BIN" "$ROOT/script/e5/reproduce_table8.sh" \
-            "${E5_RESULT_ROOT:-$ROOT/result/e5/generated}"
-        ;;
-    audit)
-        "$PYTHON_BIN" "$ROOT/script/e5/verify_table8.py" --require-paper-values
-        ;;
-    verify)
-        "$PYTHON_BIN" "$ROOT/script/e5/verify_table8.py" \
-            --input "${E5_RESULT_ROOT:-$ROOT/result/e5/generated}/memory_scaling.json"
-        ;;
-    paper)
-        PYTHON_BIN="$PYTHON_BIN" exec "$ROOT/script/e5/run_paper_aligned.sh" run
-        ;;
-    paper-self-test)
+    self-test)
         PYTHON_BIN="$PYTHON_BIN" exec "$ROOT/script/e5/run_paper_aligned.sh" self-test
         ;;
-    paper-verify)
+    verify)
+        : "${E5_RESULT_ROOT:?set E5_RESULT_ROOT to a complete guarded E5 result directory}"
         PYTHON_BIN="$PYTHON_BIN" exec "$ROOT/script/e5/run_paper_aligned.sh" verify
         ;;
-    -h|--help)
-        echo "usage: script/run_e5 [run|audit|verify|paper|paper-self-test|paper-verify]"
-        ;;
-    *)
-        echo "usage: script/run_e5 [run|audit|verify|paper|paper-self-test|paper-verify]" >&2
-        exit 2
-        ;;
+    run) ;;
+    *) echo "usage: script/run_e5 [run|self-test|verify]" >&2; exit 2 ;;
 esac
+
+if [[ -n "${RUN_DIR:-}" ]]; then
+    PYTHON_BIN="$PYTHON_BIN" exec "$ROOT/script/e5/run_paper_aligned.sh" run
+fi
+
+source "$ROOT/script/lib/ae_env.sh"
+: "${AE_NODE_ROOT:?run_e5: AE_NODE_ROOT is required}"
+RUN_ID="${E5_RUN_ID:-${RUN_ALL_ID:-e5-$(date -u +%Y%m%d-%H%M%S)}}"
+DEST="${E5_EXPORT_ROOT:-$ROOT/result/e5/generated/$RUN_ID}"
+[[ ! -e "$DEST" ]] || { echo "run_e5: output already exists: $DEST" >&2; exit 2; }
+
+AE_CANONICAL_PYTHON="$PYTHON_BIN" \
+    "$ROOT/script/e3/server.sh" run "$RUN_ID" 8 -- "$ROOT/script/run_e5" run
+
+SOURCE="$(realpath -e "$AE_NODE_ROOT")/eurosys27-ae/runs/$RUN_ID/results/e5-paper-aligned"
+[[ -d "$SOURCE" ]] || { echo "run_e5: guarded result is missing: $SOURCE" >&2; exit 1; }
+mkdir -p "$DEST/measurement" "$DEST/speed"
+for relative in \
+    measurement/result.json measurement/measurements.csv measurement/summary.csv \
+    measurement/table8.csv measurement/integrity.json \
+    speed/result.json speed/samples.csv speed/per_round.csv speed/summary.csv speed/integrity.json; do
+    install -m 0644 "$SOURCE/$relative" "$DEST/$relative"
+done
+install -m 0644 "$SOURCE/measurement/table8.csv" "$DEST/table8.csv"
+install -m 0644 "$SOURCE/speed/per_round.csv" "$DEST/speed_per_round.csv"
+echo "E5 complete data: $DEST"

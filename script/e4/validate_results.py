@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate E4 paper ledgers and an optional fresh Table 6 run."""
+"""Validate Tables 6 and 7 from the current E4 run."""
 
 from __future__ import annotations
 
@@ -10,15 +10,11 @@ import math
 from pathlib import Path
 
 
-ROOT = Path(__file__).resolve().parents[2]
-RESULT_DIR = ROOT / "result" / "e4"
-
-
 def rows(path: Path) -> list[dict[str, str]]:
     with path.open(newline="", encoding="utf-8") as stream:
         result = list(csv.DictReader(stream))
     if not result:
-        raise ValueError(f"empty E4 ledger: {path}")
+        raise ValueError(f"empty E4 output: {path}")
     return result
 
 
@@ -26,91 +22,100 @@ def close(left: float, right: float) -> bool:
     return math.isclose(left, right, rel_tol=1.0e-9, abs_tol=1.0e-9)
 
 
-def validate_paper_ledgers() -> None:
-    table6_expected = (
-        ("ResNet", "torch.compile", "0.778", "3.62", "79.15"),
-        ("BERT", "FSDP sharding", "0.861", "4.82", "91.95"),
-        ("ViT", "activation checkpointing", "0.862", "4.38", "89.12"),
-    )
-    table6 = rows(RESULT_DIR / "table6.csv")
-    if len(table6) != len(table6_expected):
-        raise ValueError(f"Table 6 requires {len(table6_expected)} rows, found {len(table6)}")
-    for row, expected in zip(table6, table6_expected, strict=True):
-        actual = (
-            row["Workload"],
-            row["Optimization"],
-            f"{float(row['Init metric']):.3f}",
-            f"{float(row['Refresh speedup']):.2f}",
-            f"{float(row['Reuse rate']):.2f}",
-        )
-        if actual != expected:
-            raise ValueError(f"Table 6 paper row changed: {actual}")
-
-    table7_expected = (
-        ("GPT", "attention backward", "84.77", "6.57"),
-        ("GPT", "MLP backward", "84.14", "6.31"),
-        ("GPT", "optimizer step", "84.72", "6.54"),
-        ("Routed-MoE", "optimizer step", "67.03", "3.03"),
-        ("Routed-MoE", "attention backward", "66.99", "3.03"),
-        ("Routed-MoE", "router backward", "66.95", "3.03"),
-    )
-    table7 = rows(RESULT_DIR / "table7.csv")
-    if len(table7) != len(table7_expected):
-        raise ValueError(f"Table 7 requires {len(table7_expected)} rows, found {len(table7)}")
-    for row, expected in zip(table7, table7_expected, strict=True):
-        actual = (
-            row["Workload"],
-            row["Mutation"],
-            f"{float(row['Reuse rate']):.2f}",
-            f"{float(row['Speedup']):.2f}",
-        )
-        if actual != expected:
-            raise ValueError(f"Table 7 paper row changed: {actual}")
-
-
-def validate_generated_table6() -> None:
-    summary_path = RESULT_DIR / "generated" / "table6" / "summary.csv"
-    generated = rows(summary_path)
+def validate_table6(result_root: Path, trace_root: Path) -> None:
+    generated = rows(result_root / "table6" / "summary.csv")
     if [row["workload"] for row in generated] != ["ResNet", "BERT", "ViT"]:
-        raise ValueError("generated Table 6 workload order differs")
+        raise ValueError("Table 6 workload order differs")
     case_names = {"ResNet": "resnet_compile", "BERT": "bert_fsdp", "ViT": "vit_checkpoint"}
     for row in generated:
         if row["status"] != "ok" or int(row["world_size"]) != 16:
-            raise ValueError(f"generated Table 6 case failed: {row}")
+            raise ValueError(f"Table 6 case failed: {row}")
         compact = int(row["candidate_compact_events"])
         selected = int(row["selected_events"])
         reuse = float(row["reuse_rate"])
         if compact <= 0 or not 0 <= selected <= compact or not close(1.0 - selected / compact, reuse):
-            raise ValueError(f"generated Table 6 reuse accounting differs: {row['workload']}")
+            raise ValueError(f"Table 6 reuse accounting differs: {row['workload']}")
         if min(float(row["init_metric_tinit_over_tb"]), float(row["core_refresh_speedup"])) <= 0.0:
-            raise ValueError(f"generated Table 6 metric is non-positive: {row['workload']}")
+            raise ValueError(f"Table 6 metric is non-positive: {row['workload']}")
         for variant in ("anchor", "candidate"):
-            trace_dir = ROOT / "trace" / "e4" / "table6" / case_names[row["workload"]] / variant / "traces"
+            trace_dir = trace_root / "table6" / case_names[row["workload"]] / variant / "traces"
             for rank in range(16):
                 for suffix in (".jsonl", "_markers.jsonl"):
                     path = trace_dir / f"rank_{rank}{suffix}"
                     if not path.is_file() or path.stat().st_size == 0:
-                        raise ValueError(f"missing generated Table 6 trace: {path}")
+                        raise ValueError(f"missing Table 6 trace: {path}")
 
-    analysis_path = RESULT_DIR / "generated" / "table6" / "source_partition_analysis.json"
-    analysis = json.loads(analysis_path.read_text(encoding="utf-8"))
-    rows_by_workload = {row["workload"]: row for row in analysis["results"]}
-    if set(rows_by_workload) != set(case_names):
-        raise ValueError("generated Table 6 source analysis workload set differs")
-    for workload, row in rows_by_workload.items():
+    analysis = json.loads((result_root / "table6" / "source_partition_analysis.json").read_text(encoding="utf-8"))
+    by_workload = {row["workload"]: row for row in analysis["results"]}
+    if set(by_workload) != set(case_names):
+        raise ValueError("Table 6 source analysis workload set differs")
+    for workload, row in by_workload.items():
         if not row["matches_recorded_plan"] or not row["inferred_partitions"] or not row["source_sites"]:
-            raise ValueError(f"generated Table 6 source analysis failed: {workload}")
+            raise ValueError(f"Table 6 source analysis failed: {workload}")
+
+    table = rows(result_root / "table6.csv")
+    if len(table) != 3:
+        raise ValueError(f"Table 6 requires three rows, found {len(table)}")
+    for output, source in zip(table, generated, strict=True):
+        if output["Workload"] != source["workload"]:
+            raise ValueError("Table 6 final workload order differs")
+        if not close(float(output["Init metric"]), float(source["init_metric_tinit_over_tb"])):
+            raise ValueError(f"Table 6 init metric differs: {output['Workload']}")
+        if not close(float(output["Refresh speedup"]), float(source["core_refresh_speedup"])):
+            raise ValueError(f"Table 6 speedup differs: {output['Workload']}")
+        if not close(float(output["Reuse rate"]), 100.0 * float(source["reuse_rate"])):
+            raise ValueError(f"Table 6 reuse rate differs: {output['Workload']}")
+
+
+def validate_table7(result_root: Path) -> None:
+    gpt = rows(result_root / "table7" / "gpt" / "summary.csv")
+    moe = rows(result_root / "table7" / "moe" / "summary.csv")
+    generated = gpt + moe
+    expected_cases = (
+        "gpt_attention_backward",
+        "gpt_mlp_backward",
+        "gpt_optimizer_step",
+        "moe_optimizer_step",
+        "moe_attention_backward",
+        "moe_router_backward",
+    )
+    if tuple(row["case"] for row in generated) != expected_cases:
+        raise ValueError("Table 7 case order differs")
+    for row in generated:
+        total = int(row["total_partitions"])
+        reusable = int(row["reusable_partitions"])
+        if total <= 0 or not 0 <= reusable <= total:
+            raise ValueError(f"Table 7 partition accounting differs: {row['case']}")
+        if not close(float(row["partition_reuse_rate"]), reusable / total):
+            raise ValueError(f"Table 7 reuse arithmetic differs: {row['case']}")
+        if min(float(row["full_phase_median_s"]), float(row["refresh_phase_median_s"]), float(row["phase_speedup"])) <= 0.0:
+            raise ValueError(f"Table 7 timing is non-positive: {row['case']}")
+        if not close(
+            float(row["phase_speedup"]),
+            float(row["full_phase_median_s"]) / float(row["refresh_phase_median_s"]),
+        ):
+            raise ValueError(f"Table 7 speedup arithmetic differs: {row['case']}")
+
+    table = rows(result_root / "table7.csv")
+    if len(table) != 6:
+        raise ValueError(f"Table 7 requires six rows, found {len(table)}")
+    for output, source in zip(table, generated, strict=True):
+        if output["Mutation"] != source["mutation"]:
+            raise ValueError(f"Table 7 mutation differs: {source['case']}")
+        if not close(float(output["Reuse rate"]), 100.0 * float(source["partition_reuse_rate"])):
+            raise ValueError(f"Table 7 reuse rate differs: {source['case']}")
+        if not close(float(output["Speedup"]), float(source["phase_speedup"])):
+            raise ValueError(f"Table 7 speedup differs: {source['case']}")
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--require-generated", action="store_true", help="also require fresh Table 6 traces")
+    parser.add_argument("--result-root", type=Path, required=True)
+    parser.add_argument("--trace-root", type=Path, required=True)
     args = parser.parse_args()
-    validate_paper_ledgers()
-    if args.require_generated:
-        validate_generated_table6()
-    suffix = "; generated Table 6 trace" if args.require_generated else ""
-    print(f"E4 validation: PASS (Table 6: 3 rows; Table 7: 6 rows{suffix})")
+    validate_table6(args.result_root.resolve(), args.trace_root.resolve())
+    validate_table7(args.result_root.resolve())
+    print("E4 validation: PASS (Tables 6 and 7 from current run)")
     return 0
 
 

@@ -97,6 +97,6 @@ if [[ "$FLEXMAYA_NODE_RANK" == "0" ]]; then
         --csv "$RESULT_ROOT/figure6.csv" --panel moe \
         --output "$ROOT/plot/figure6b.pdf"
     "$PYTHON_BIN" "$ROOT/script/e3/validate_results.py" \
-        --require-generated --generated-dir "$RESULT_ROOT"
+        --figure6-generated-dir "$RESULT_ROOT"
     echo "figure6: complete data: $RESULT_ROOT"
 fi

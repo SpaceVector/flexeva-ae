@@ -8,7 +8,6 @@ RESULT_ROOT="${TABLE7_RESULT_ROOT:-$ROOT/result/e4/generated/table7}"
 SETUP="$ROOT/script/e4/backend/setup_astra.sh"
 BINARY="$ASTRA_ROOT/extern/network_backend/ns-3/build/scratch/ns3.42-AstraSimNetwork-default"
 DRIVER="$ASTRA_ROOT/scripts/measure_table7_backend_generality.py"
-ANCHOR_ROOT="$ASTRA_ROOT/inputs/table7_anchor_20260901"
 
 if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
     echo "Usage: $0"
@@ -29,7 +28,6 @@ else
 fi
 
 test -f "$DRIVER"
-test -d "$ANCHOR_ROOT"
 mkdir -p "$RESULT_ROOT"
 [[ ! -e "$RESULT_ROOT/gpt" && ! -e "$RESULT_ROOT/moe" ]] || {
     echo "Table 7 output already exists: $RESULT_ROOT; choose TABLE7_RESULT_ROOT" >&2
@@ -38,7 +36,6 @@ mkdir -p "$RESULT_ROOT"
 
 "$PYTHON_BIN" "$DRIVER" run \
     --repo-root "$ASTRA_ROOT" \
-    --anchor-root "$ANCHOR_ROOT" \
     --binary "$BINARY" \
     --out-dir "$RESULT_ROOT/gpt" \
     --repeats 1 \
@@ -48,7 +45,6 @@ mkdir -p "$RESULT_ROOT"
 
 "$PYTHON_BIN" "$DRIVER" run \
     --repo-root "$ASTRA_ROOT" \
-    --anchor-root "$ANCHOR_ROOT" \
     --binary "$BINARY" \
     --out-dir "$RESULT_ROOT/moe" \
     --repeats 3 \

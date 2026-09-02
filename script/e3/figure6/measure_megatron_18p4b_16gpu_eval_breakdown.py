@@ -45,7 +45,7 @@ FLEXEVA_CUMULATIVE = "FlexEva cumulative"
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Build submitted-Figure-6-compatible breakdown tables for the 18.4B/16-rank run."
+        description="Build Figure 6 breakdown tables for the 18.4B/16-rank run."
     )
     parser.add_argument("--input-dir", type=Path, required=True)
     parser.add_argument("--out-dir", type=Path, required=True)
@@ -349,7 +349,7 @@ def main() -> int:
             "workload": "Megatron 18.4B/16-rank maya_megatron.py fake-CUDA trace-shape workload",
             "physical_execution": "two guarded eight-A100 hosts; torchrun launches eight ranks per host",
             "timing_boundary": (
-                "submitted-Figure-6-compatible accounting; full fake-CUDA emulation uses subprocess wall time "
+                "Figure 6 accounting; full fake-CUDA emulation uses subprocess wall time "
                 "including startup and teardown, while source-selective emulation uses marked region windows"
             ),
             "baseline_attribution": (
@@ -381,7 +381,7 @@ def main() -> int:
     lines = [
         "# Megatron 18.4B / 16-rank Evaluation Breakdown",
         "",
-        "Input: `maya_megatron.py` fake-CUDA traces from controlled cumulative source-region selections. Full emulation uses the submitted Figure 6 process-wall boundary; marker windows remain diagnostics and define source-selective emulation.",
+        "Input: `maya_megatron.py` fake-CUDA traces from controlled cumulative source-region selections. Full emulation uses the Figure 6 process-wall boundary; marker windows remain diagnostics and define source-selective emulation.",
         "`Maya-style + FlexEva trace-RAS` is an author-constructed ablation, not a feature of original Maya.",
         "",
         "| Round | Candidate | Maya-style full (s) | Maya-style + FlexEva trace-RAS (s) | FlexEva cumulative (s) | FlexEva refresh (s) |",

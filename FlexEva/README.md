@@ -1,8 +1,8 @@
 # FlexEva Core
 
 This directory contains the FlexEva implementation used by the artifact
-experiments. Paper workloads, experiment orchestration, retained measurements,
-and generated figures live in the repository root.
+experiments. Paper workloads, experiment orchestration, and generated outputs
+live in the repository root.
 
 FlexEva incrementally evaluates changes to distributed-training workloads. It
 reuses a previously evaluated anchor, identifies the code and trace partitions
@@ -21,9 +21,8 @@ every candidate while preserving a full-refresh path for configuration changes.
 ## Build and test
 
 ```bash
-python3 -m venv .venv
-.venv/bin/pip install -r requirements-dev.txt
-make PYTHON=.venv/bin/python test
+script/setup
+make -C FlexEva PYTHON=../.venv/bin/python test
 ```
 
 FlexEva is included directly in the artifact repository, so one checkout is

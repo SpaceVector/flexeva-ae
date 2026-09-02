@@ -136,7 +136,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--input-trace-root",
         type=Path,
-        help="Read CASE/traces below this directory when reusing retained traces.",
+        help="Read CASE/traces below this directory when reusing existing traces.",
     )
     parser.add_argument("--sync-before-step-window", action="store_true")
     parser.add_argument(

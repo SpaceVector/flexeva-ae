@@ -1,4 +1,0 @@
-Evaluator,K=1 (GiB),K=8 (GiB),K=32 (GiB),Marginal delta (MiB/cand.)
-Maya-full,0.43,2.74,10.54,334.08
-Maya-trace-RAS,0.05,0.32,1.04,32.81
-FlexEva,0.08,0.21,0.65,18.76

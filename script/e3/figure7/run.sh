@@ -45,6 +45,7 @@ if [[ "$ACTION" == verify || "$ACTION" == report ]]; then
     "$PYTHON_BIN" "$DRIVER" report \
         --out-dir "$FIGURE7_REPORT_ROOT" \
         --result "$FIGURE7_RESULT"
+    mkdir -p "$ROOT/plot"
     install -m 0644 "$FIGURE7_REPORT_ROOT/figure7.pdf" "$ROOT/plot/figure7.pdf"
     exit
 fi
@@ -105,5 +106,6 @@ MIN_GPFS_FREE_GIB="${FIGURE7_MIN_FREE_GIB:-500}" \
     "$ROOT/script/e3/server.sh" run "$FIGURE7_RUN_ID-coordinator" 8 -- "${command[@]}"
 
 if [[ "$ACTION" == run ]]; then
+    mkdir -p "$ROOT/plot"
     install -m 0644 "$RESULT_ROOT/figure7.pdf" "$ROOT/plot/figure7.pdf"
 fi

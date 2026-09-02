@@ -14,7 +14,6 @@ import matplotlib.pyplot as plt
 
 
 ROOT = Path(__file__).resolve().parents[2]
-RESULT_DIR = ROOT / "result" / "e2" / "generated_figure5"
 OUTPUT_DIR = ROOT / "plot"
 
 
@@ -105,7 +104,7 @@ def draw(result_dir: Path, output_dir: Path) -> Path:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--result-dir", type=Path, default=RESULT_DIR)
+    parser.add_argument("--result-dir", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, default=OUTPUT_DIR)
     args = parser.parse_args()
     print(f"wrote {draw(args.result_dir, args.output_dir)}")

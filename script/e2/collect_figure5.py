@@ -30,8 +30,6 @@ def load_json(path: Path) -> dict[str, object]:
 
 
 def validate_trace(path: Path, world_size: int, source_mode: str) -> None:
-    if source_mode == "large_cluster_trace" and not path.is_symlink():
-        raise ValueError(f"large-cluster Figure 5 input must be a link: {path}")
     if not path.is_dir():
         raise FileNotFoundError(f"missing Figure 5 trace: {path}")
     manifest = load_json(path / "capture_manifest.json")
@@ -219,15 +217,15 @@ def self_test() -> None:
             "large_cluster_trace",
             "large_cluster_trace",
         ]
-        from validate_results import validate_generated_figure5
+        from validate_results import validate_figure5
 
-        validate_generated_figure5(output)
+        validate_figure5(output)
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--summary-root", type=Path, default=ROOT / "result" / "e2" / "generated_figure5")
-    parser.add_argument("--output-dir", type=Path, default=ROOT / "result" / "e2" / "generated_figure5")
+    parser.add_argument("--summary-root", type=Path)
+    parser.add_argument("--output-dir", type=Path)
     parser.add_argument("--native-trace-root", type=Path, default=ROOT / "trace" / "e2" / "figure5")
     parser.add_argument("--large-trace-root", type=Path, default=ROOT / "large-cluster" / "e2")
     parser.add_argument("--self-test", action="store_true")
@@ -236,6 +234,8 @@ def main() -> int:
         self_test()
         print("Figure 5 collector self-test: PASS")
         return 0
+    if args.summary_root is None or args.output_dir is None:
+        parser.error("--summary-root and --output-dir are required")
     collect(args.summary_root, args.output_dir, args.native_trace_root, args.large_trace_root)
     print(f"wrote {args.output_dir / 'figure5a.csv'} and {args.output_dir / 'figure5b.csv'}")
     return 0

@@ -31,6 +31,7 @@ PROOT_BIN="$(realpath -e "$PROOT_BIN")"
 for name in git cmake g++ make protoc mpicxx nvidia-smi; do
     require_command "$name"
 done
+"$PYTHON_BIN" "$ROOT/script/check_fresh_workflow.py" || fail "fresh workflow contract failed"
 [[ -x "$CUDA_HOME/bin/nvcc" ]] || fail "CUDA compiler is unavailable: $CUDA_HOME/bin/nvcc"
 [[ "$(cmake --version | awk 'NR == 1 { print $3 }')" == "3.22.1" ]] || fail "CMake must be 3.22.1"
 [[ "$(g++ -dumpfullversion -dumpversion)" == 11.4* ]] || fail "g++ must be 11.4.x"

@@ -58,8 +58,6 @@ prepare() {
     git -C "$source_root" submodule update --init --recursive
     git -C "$source_root" apply "$bundle_root/astra-ras-ns3.patch"
     cp -a "$bundle_root/overlay/." "$source_root/"
-    mkdir -p "$source_root/inputs"
-    cp -a "$bundle_root/inputs/." "$source_root/inputs/"
     printf 'upstream=%s\ncommit=%s\nbundle_sha256=%s\n' \
         "$upstream_url" "$upstream_commit" "$(sha256sum "$bundle_root/CHECKSUMS.sha256" | cut -d' ' -f1)" >"$marker"
     check_source

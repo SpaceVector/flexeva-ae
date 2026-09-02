@@ -1,16 +1,11 @@
-# E3 trace output
+# E3 generated traces
 
-Figure 6 writes fresh two-node rank traces here:
+Figures 6 and 8 write fresh run-specific traces here:
 
 ```text
-trace/e3/figure6/gpt/<capture>/traces/rank_*.jsonl
-trace/e3/figure6/moe/<capture>/traces/rank_*.jsonl
+trace/e3/figure6/<run-id>/
+trace/e3/figure8/<run-id>/
 ```
 
-Each capture contains 16 rank files and 16 marker files. Node 1 transfers its
-eight-rank files to node 0 before analysis; no precomputed raw trace is used.
-
-Figure 7 preserves its binary and JSONL traces beside each guarded run under
-`result/e3/generated/figure7/<run-id>/formal/`. Keeping these traces with the
-candidate manifest and timing checkpoints prevents result files from being
-mixed across guarded runs.
+The distributed capture transfers the peer's rank files to the coordinator
+before analysis. Figure 7 keeps its trace files beside its generated result.

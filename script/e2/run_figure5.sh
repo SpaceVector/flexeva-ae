@@ -30,7 +30,7 @@ fi
 
 : "${RUN_ID:?figure5: coordinated workers require FLEXMAYA_RUN_ID}"
 TRACE_ROOT="${FIGURE5_TRACE_ROOT:-$ROOT/trace/e2/figure5/$RUN_ID}"
-RESULT_ROOT="${FIGURE5_RESULT_ROOT:-$ROOT/result/e2/generated_figure5/$RUN_ID}"
+RESULT_ROOT="${FIGURE5_RESULT_ROOT:-$ROOT/result/e2/generated/figure5/$RUN_ID}"
 [[ "$PROOT_BIN" == /* ]] || PROOT_BIN="$PWD/$PROOT_BIN"
 [[ "$ESTIMATOR_MODEL" == /* ]] || ESTIMATOR_MODEL="$PWD/$ESTIMATOR_MODEL"
 [[ "$TRACE_ROOT" == /* ]] || TRACE_ROOT="$PWD/$TRACE_ROOT"
@@ -320,7 +320,7 @@ done
     --summary-root "$RESULT_ROOT" --output-dir "$RESULT_ROOT" \
     --native-trace-root "$TRACE_ROOT" --large-trace-root "$LARGE_ROOT"
 "$PYTHON_BIN" "$ROOT/script/e2/validate_results.py" \
-    --require-figure5 --figure5-only --figure5-result-dir "$RESULT_ROOT"
+    --figure5-result-dir "$RESULT_ROOT"
 "$PYTHON_BIN" "$ROOT/script/e2/plot_figure5.py" \
     --result-dir "$RESULT_ROOT" --output-dir "$ROOT/plot"
 echo "figure5: complete data: $RESULT_ROOT"

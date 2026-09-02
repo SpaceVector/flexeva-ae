@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate the retained E1 ledger and derive Figure 1(b/c) CSV files."""
+"""Validate a current E1 run and derive Figure 1(b/c) CSV files."""
 
 from __future__ import annotations
 
@@ -9,9 +9,6 @@ import math
 from pathlib import Path
 
 
-ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_INPUT = ROOT / "result" / "e1" / "trajectory.csv"
-DEFAULT_RESULT_DIR = ROOT / "result" / "e1"
 EXPECTED_STAGES = ("Base", "S1", "S2", "S3", "S4")
 METRICS = {
     "time": "step_time_s",
@@ -30,7 +27,7 @@ def load_rows(path: Path) -> list[dict[str, str]]:
         return list(csv.DictReader(stream))
 
 
-def validate(rows: list[dict[str, str]], *, require_historical_outcomes: bool = True) -> None:
+def validate(rows: list[dict[str, str]]) -> None:
     if len(rows) != 5:
         raise ValueError(f"E1 requires five ledger rows, found {len(rows)}")
 
@@ -45,29 +42,17 @@ def validate(rows: list[dict[str, str]], *, require_historical_outcomes: bool = 
         deleted = int(row["deleted_lines"])
         if int(row["total_changed_lines"]) != added + deleted:
             raise ValueError(f"E1 patch accounting differs at {stage}")
-        if Path(row["result_source_file"]).is_absolute():
-            raise ValueError(f"E1 result source must be relative at {stage}")
-
         for prefix, field in METRICS.items():
             value = float(row[field])
             base = float(baseline[field])
-            reduction = (base - value) / base
-            normalized = 1.0 + reduction
             if value < 0.0 or base <= 0.0:
                 raise ValueError(f"invalid E1 {field} at {stage}")
+            reduction = (base - value) / base
+            normalized = 1.0 + reduction
             if not close(reduction, float(row[f"{prefix}_reduction_vs_baseline"])):
                 raise ValueError(f"E1 {prefix} reduction differs at {stage}")
             if not close(normalized, float(row[f"{prefix}_normalized_improvement"])):
                 raise ValueError(f"E1 {prefix} normalization differs at {stage}")
-
-    if require_historical_outcomes:
-        if float(rows[2]["time_reduction_vs_baseline"]) >= 0.0:
-            raise ValueError("E1 must retain the failed S2 round")
-        if f"{100.0 * float(rows[-1]['time_reduction_vs_baseline']):.2f}" != "61.30":
-            raise ValueError("E1 final time reduction must be 61.30%")
-        if f"{100.0 * float(rows[-1]['a2a_reduction_vs_baseline']):.2f}" != "95.03":
-            raise ValueError("E1 final A2A reduction must be 95.03%")
-
 
 def write_csv(path: Path, fieldnames: tuple[str, ...], rows: list[dict[str, object]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -109,17 +94,14 @@ def derive(rows: list[dict[str, str]], result_dir: Path) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--input", type=Path, default=DEFAULT_INPUT)
-    parser.add_argument("--result-dir", type=Path, default=DEFAULT_RESULT_DIR)
-    parser.add_argument("--check-only", action="store_true")
-    parser.add_argument("--real-measurements", action="store_true", help="Accept fresh hardware-dependent outcomes.")
+    parser.add_argument("--input", type=Path, required=True)
+    parser.add_argument("--result-dir", type=Path, required=True)
     args = parser.parse_args()
 
     rows = load_rows(args.input)
-    validate(rows, require_historical_outcomes=not args.real_measurements)
-    if not args.check_only:
-        derive(rows, args.result_dir)
-    print(f"E1 ledger: PASS ({len(rows)} rows)")
+    validate(rows)
+    derive(rows, args.result_dir)
+    print(f"E1 current-run data: PASS ({len(rows)} rows)")
     return 0
 
 

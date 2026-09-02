@@ -14,7 +14,6 @@ import matplotlib.pyplot as plt
 
 
 ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_RESULT_DIR = ROOT / "result" / "e1"
 DEFAULT_OUTPUT_DIR = ROOT / "plot"
 
 
@@ -133,7 +132,7 @@ def draw(result_dir: Path, output_dir: Path) -> Path:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--result-dir", type=Path, default=DEFAULT_RESULT_DIR)
+    parser.add_argument("--result-dir", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
     args = parser.parse_args()
     output_path = draw(args.result_dir, args.output_dir)

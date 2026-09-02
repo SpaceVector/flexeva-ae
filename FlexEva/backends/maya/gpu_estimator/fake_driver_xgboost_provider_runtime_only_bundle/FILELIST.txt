@@ -10,7 +10,6 @@ models/xgboost/runtime_provider/nccl_allreduce/metadata.json
 models/xgboost/runtime_provider/nccl_allreduce/model.json
 models/xgboost/runtime_provider/nccl_allreduce/train_metrics.json
 requirements.txt
-results/xgboost_runtime_provider_eval.csv
 src/__init__.py
 src/fake_driver_xgboost_provider.py
 src/operator_runtime_features.py

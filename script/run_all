@@ -3,19 +3,31 @@ set -euo pipefail
 
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 PYTHON_BIN="${PYTHON_BIN:-$ROOT/.venv/bin/python}"
-MODE="${1:-run}"
 
-[[ "$MODE" != run ]] || source "$ROOT/script/lib/ae_env.sh"
+[[ $# == 0 ]] || { echo "usage: script/run_all" >&2; exit 2; }
+[[ "${RUN_ALL_DRY_RUN:-0}" == 1 ]] || source "$ROOT/script/lib/ae_env.sh"
+if [[ "$PYTHON_BIN" != */* ]]; then
+    PYTHON_BIN="$(command -v "$PYTHON_BIN" || true)"
+fi
+[[ -n "$PYTHON_BIN" ]] || { echo "run_all: Python is unavailable" >&2; exit 2; }
+PYTHON_BIN="$(cd -- "$(dirname -- "$PYTHON_BIN")" && pwd -P)/$(basename -- "$PYTHON_BIN")"
+export PYTHON_BIN
 
-usage() {
-    echo "usage: script/run_all [run|audit]"
-    echo "       RUN_ALL_DRY_RUN=1 script/run_all"
-}
+export RUN_ALL_ID="${RUN_ALL_ID:-ae-$(date -u +%Y%m%d-%H%M%S)}"
+export E1_RUN_ID="${E1_RUN_ID:-$RUN_ALL_ID-e1}"
+export TABLE4_RUN_ID="${TABLE4_RUN_ID:-$RUN_ALL_ID-e2-table4}"
+export FIGURE5_RUN_ID="${FIGURE5_RUN_ID:-$RUN_ALL_ID-e2-figure5}"
+export FIGURE6_RUN_ID="${FIGURE6_RUN_ID:-$RUN_ALL_ID-e3-figure6}"
+export FIGURE7_RUN_ID="${FIGURE7_RUN_ID:-$RUN_ALL_ID-e3-figure7}"
+export FIGURE8_RUN_ID="${FIGURE8_RUN_ID:-$RUN_ALL_ID-e3-figure8}"
+export E4_RUN_ID="${E4_RUN_ID:-$RUN_ALL_ID-e4}"
+export E5_RUN_ID="${E5_RUN_ID:-$RUN_ALL_ID-e5}"
+export FLEXMAYA_MASTER_PORT="${FLEXMAYA_MASTER_PORT:-29500}"
+export FLEXMAYA_CONTROL_PORT="${FLEXMAYA_CONTROL_PORT:-29600}"
 
-run_step() {
-    local label="$1"
+run() {
+    echo "==> $1"
     shift
-    echo "==> $label"
     if [[ "${RUN_ALL_DRY_RUN:-0}" == 1 ]]; then
         printf '    '
         printf '%q ' "$@"
@@ -25,67 +37,15 @@ run_step() {
     fi
 }
 
-[[ $# -le 1 ]] || { usage >&2; exit 2; }
-if [[ "$PYTHON_BIN" != */* ]]; then
-    PYTHON_BIN="$(command -v "$PYTHON_BIN" || true)"
+run "setup check" "$ROOT/script/check_setup"
+run "E1" "$ROOT/script/run_e1"
+run "E2" "$ROOT/script/run_e2"
+run "E3" "$ROOT/script/run_e3"
+run "E4" "$ROOT/script/run_e4"
+run "E5" "$ROOT/script/run_e5"
+
+if [[ "${RUN_ALL_DRY_RUN:-0}" == 1 ]]; then
+    echo "AE reproduction plan: PASS ($RUN_ALL_ID)"
+else
+    echo "AE full reproduction: PASS ($RUN_ALL_ID)"
 fi
-[[ -n "$PYTHON_BIN" ]] || { echo "run_all: Python is unavailable" >&2; exit 2; }
-PYTHON_BIN="$(cd -- "$(dirname -- "$PYTHON_BIN")" && pwd -P)/$(basename -- "$PYTHON_BIN")"
-export PYTHON_BIN
-
-case "$MODE" in
-    run)
-        RUN_ALL_ID="${RUN_ALL_ID:-ae-$(date -u +%Y%m%d-%H%M%S)}"
-        export FIGURE5_RUN_ID="${FIGURE5_RUN_ID:-$RUN_ALL_ID-e2-figure5}"
-        export FIGURE6_RUN_ID="${FIGURE6_RUN_ID:-$RUN_ALL_ID-e3-figure6}"
-        export FIGURE7_RUN_ID="${FIGURE7_RUN_ID:-$RUN_ALL_ID-e3-figure7}"
-        export FIGURE8_RUN_ID="${FIGURE8_RUN_ID:-$RUN_ALL_ID-e3-figure8}"
-        export FLEXMAYA_MASTER_PORT="${FLEXMAYA_MASTER_PORT:-29500}"
-        export FLEXMAYA_CONTROL_PORT="${FLEXMAYA_CONTROL_PORT:-29600}"
-        E5_RUN_ID="${E5_RUN_ID:-$RUN_ALL_ID-e5}"
-
-        if [[ "${RUN_ALL_DRY_RUN:-0}" != 1 ]]; then
-            for name in AE_NODE_ROOT FLEXMAYA_MASTER_ADDR FLEXMAYA_PEER_TARGET \
-                FLEXMAYA_PEER_REPO_ROOT FLEXMAYA_PEER_NODE_ROOT; do
-                [[ -n "${!name:-}" ]] || {
-                    echo "run_all: set $name before the full reproduction" >&2
-                    exit 2
-                }
-            done
-        fi
-
-        run_step "setup check" "$ROOT/script/check_setup"
-        run_step "server guard self-test" "$ROOT/script/e3/server.sh" self-test
-        run_step "two-node launcher self-test" "$PYTHON_BIN" "$ROOT/script/lib/two_node.py" self-test
-        run_step "E1: Figure 1" "$ROOT/script/run_e1" trace
-        run_step "E2: Table 4" "$ROOT/script/run_e2" table4
-        run_step "E2: Figure 5" "$ROOT/script/run_e2" figure5
-        run_step "E3: Figure 6" "$ROOT/script/run_e3" figure6
-        run_step "E3: Figure 7" "$ROOT/script/run_e3" figure7 run
-        run_step "E3: Figure 8" "$ROOT/script/run_e3" figure8 run
-        run_step "E4: Tables 6 and 7" "$ROOT/script/run_e4"
-        run_step "E5: Table 8 and per-round speedup" env \
-            "AE_CANONICAL_PYTHON=$PYTHON_BIN" \
-            "$ROOT/script/e3/server.sh" run "$E5_RUN_ID" 8 -- "$ROOT/script/run_e5" paper
-        if [[ "${RUN_ALL_DRY_RUN:-0}" == 1 ]]; then
-            echo "AE full reproduction plan: PASS ($RUN_ALL_ID)"
-        else
-            echo "AE full reproduction: PASS ($RUN_ALL_ID)"
-        fi
-        ;;
-    audit)
-        "$PYTHON_BIN" "$ROOT/script/e1/derive_results.py" --check-only
-        "$PYTHON_BIN" "$ROOT/script/e2/validate_results.py" --check-only
-        "$PYTHON_BIN" "$ROOT/script/e3/validate_results.py"
-        "$PYTHON_BIN" "$ROOT/script/e4/validate_results.py"
-        PYTHON_BIN="$PYTHON_BIN" "$ROOT/script/run_e5" audit
-        echo "AE retained-result audit: PASS (E1-E5)"
-        ;;
-    -h|--help)
-        usage
-        ;;
-    *)
-        usage >&2
-        exit 2
-        ;;
-esac

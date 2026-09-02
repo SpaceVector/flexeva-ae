@@ -5,8 +5,11 @@ ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 PYTHON_BIN="${PYTHON_BIN:-$ROOT/.venv/bin/python}"
 MAYA_ROOT="${MAYA_ROOT:-$ROOT/FlexEva/backends/maya}"
 PROOT_BIN="${PROOT_BIN:-$ROOT/.deps/proot-5.3.1/bin/proot}"
-TABLE6_RESULT_ROOT="$ROOT/result/e4/generated/table6"
-TABLE6_TRACE_ROOT="$ROOT/trace/e4/table6"
+RUN_ID="${E4_RUN_ID:-${RUN_ALL_ID:-e4-$(date -u +%Y%m%d-%H%M%S)}}"
+RESULT_ROOT="${E4_RESULT_ROOT:-$ROOT/result/e4/generated/$RUN_ID}"
+TRACE_ROOT="${E4_TRACE_ROOT:-$ROOT/trace/e4/$RUN_ID}"
+TABLE6_RESULT_ROOT="$RESULT_ROOT/table6"
+TABLE6_TRACE_ROOT="$TRACE_ROOT/table6"
 
 if [[ "$PYTHON_BIN" != */* ]]; then
     PYTHON_BIN="$(command -v "$PYTHON_BIN" || true)"
@@ -20,6 +23,10 @@ test -x "$MAYA_ROOT/fake-cuda/frun" || {
 }
 test -x "$PROOT_BIN" || {
     echo "missing PRoot: $PROOT_BIN; run script/setup first or set PROOT_BIN" >&2
+    exit 2
+}
+[[ ! -e "$RESULT_ROOT" && ! -e "$TRACE_ROOT" ]] || {
+    echo "E4 output already exists; use a new E4_RUN_ID" >&2
     exit 2
 }
 
@@ -45,5 +52,9 @@ export FAKECUDA_TARGET_ENV_ROOT="${FAKECUDA_TARGET_ENV_ROOT:-$(cd -- "$(dirname 
 "$PYTHON_BIN" "$ROOT/script/e4/workload_generality/analyze_source_partitions.py" \
     --result-json "$TABLE6_RESULT_ROOT/result.json"
 
-"$PYTHON_BIN" "$ROOT/script/e4/validate_results.py" --require-generated
-bash "$ROOT/script/e4/backend/run_backend_generality.sh"
+TABLE7_RESULT_ROOT="$RESULT_ROOT/table7" bash "$ROOT/script/e4/backend/run_backend_generality.sh"
+
+"$PYTHON_BIN" "$ROOT/script/e4/collect_results.py" --result-root "$RESULT_ROOT"
+"$PYTHON_BIN" "$ROOT/script/e4/validate_results.py" \
+    --result-root "$RESULT_ROOT" --trace-root "$TRACE_ROOT"
+echo "E4 complete data: $RESULT_ROOT"

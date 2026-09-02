@@ -2,19 +2,28 @@
 set -euo pipefail
 
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-MODE="${1:-figure5}"
+MODE="${1:-all}"
 
-[[ "$MODE" != figure5 ]] || source "$ROOT/script/lib/ae_env.sh"
+[[ "$MODE" != figure5 && "$MODE" != all ]] || source "$ROOT/script/lib/ae_env.sh"
+if [[ "$MODE" == all ]]; then
+    E2_RUN_ID="${E2_RUN_ID:-e2-$(date -u +%Y%m%d-%H%M%S)}"
+    export TABLE4_RUN_ID="${TABLE4_RUN_ID:-$E2_RUN_ID-table4}"
+    export FIGURE5_RUN_ID="${FIGURE5_RUN_ID:-$E2_RUN_ID-figure5}"
+fi
 
-[[ $# -le 1 ]] || { echo "usage: script/run_e2 [figure5|table4]" >&2; exit 2; }
+[[ $# -le 1 ]] || { echo "usage: script/run_e2 [all|table4|figure5]" >&2; exit 2; }
 case "$MODE" in
+    all)
+        "$ROOT/script/run_e2" table4
+        exec "$ROOT/script/run_e2" figure5
+        ;;
     figure5)
         exec bash "$ROOT/script/e2/run_figure5.sh"
         ;;
     table4)
         ;;
     *)
-        echo "usage: script/run_e2 [figure5|table4]" >&2
+        echo "usage: script/run_e2 [all|table4|figure5]" >&2
         exit 2
         ;;
 esac
@@ -27,8 +36,9 @@ fi
 PYTHON_BIN="$(cd -- "$(dirname -- "$PYTHON_BIN")" && pwd -P)/$(basename -- "$PYTHON_BIN")"
 MAYA_ROOT="${MAYA_ROOT:-$ROOT/FlexEva/backends/maya}"
 PROOT_BIN="${PROOT_BIN:-$ROOT/.deps/proot-5.3.1/bin/proot}"
-TRACE_ROOT="${TRACE_ROOT:-$ROOT/trace/e2/table4}"
-RESULT_ROOT="${RESULT_ROOT:-$ROOT/result/e2/generated_table4}"
+RUN_ID="${TABLE4_RUN_ID:-${RUN_ALL_ID:-e2-$(date -u +%Y%m%d-%H%M%S)}}"
+TRACE_ROOT="${TABLE4_TRACE_ROOT:-$ROOT/trace/e2/table4/$RUN_ID}"
+RESULT_ROOT="${TABLE4_RESULT_ROOT:-$ROOT/result/e2/generated/table4/$RUN_ID}"
 FLEXEVA_RAS_SRC="$ROOT/FlexEva/flexmaya_ras/src"
 TRACE_SCRIPTS="$ROOT/script/e2/trace_similarity"
 
@@ -38,6 +48,10 @@ test -x "$MAYA_ROOT/fake-cuda/frun" || {
 }
 test -x "$PROOT_BIN" || {
     echo "missing PRoot: $PROOT_BIN; set PROOT_BIN or run the server setup" >&2
+    exit 2
+}
+[[ ! -e "$RESULT_ROOT" && ! -e "$TRACE_ROOT" ]] || {
+    echo "run_e2: Table 4 output already exists; use a new TABLE4_RUN_ID" >&2
     exit 2
 }
 
@@ -64,5 +78,11 @@ export FAKECUDA_TARGET_ENV_ROOT="${FAKECUDA_TARGET_ENV_ROOT:-$(cd -- "$(dirname 
     --seed-base 5200 \
     --keep-raw-traces
 
-"$PYTHON_BIN" "$ROOT/script/e2/collect_table4.py"
-"$PYTHON_BIN" "$ROOT/script/e2/validate_results.py" --require-traces --table4-only
+"$PYTHON_BIN" "$ROOT/script/e2/collect_table4.py" \
+    --gpt-summary "$RESULT_ROOT/gpt/summary.csv" \
+    --moe-summary "$RESULT_ROOT/routed-moe/summary.csv" \
+    --trace-root "$TRACE_ROOT" \
+    --output "$RESULT_ROOT/table4.csv"
+"$PYTHON_BIN" "$ROOT/script/e2/validate_results.py" \
+    --table4-result "$RESULT_ROOT/table4.csv" --require-table4-traces
+echo "E2 Table 4 complete data: $RESULT_ROOT"

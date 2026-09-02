@@ -9,8 +9,6 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
-RESULT_DIR = ROOT / "result" / "e2"
-OUTPUT = RESULT_DIR / "table4_from_trace.csv"
 
 
 def read_rows(path: Path) -> list[dict[str, str]]:
@@ -21,7 +19,9 @@ def read_rows(path: Path) -> list[dict[str, str]]:
     return rows
 
 
-def check_summary(rows: list[dict[str, str]], workload: str, trace_subdir: str) -> list[dict[str, str]]:
+def check_summary(
+    rows: list[dict[str, str]], workload: str, trace_root: Path, trace_subdir: str
+) -> list[dict[str, str]]:
     normalized: list[dict[str, str]] = []
     for row in rows:
         if int(row["return_code"]) != 0:
@@ -29,9 +29,9 @@ def check_summary(rows: list[dict[str, str]], workload: str, trace_subdir: str) 
         case = row["case"]
         if int(row["world_size"]) <= 0 or int(row["raw_events"]) <= 0:
             raise ValueError(f"{workload} case has no trace events: {case}")
-        trace_dir = Path("trace/e2/table4") / trace_subdir / case / "traces"
-        if not (ROOT / trace_dir).is_dir():
-            raise FileNotFoundError(f"missing trace directory for {case}: {ROOT / trace_dir}")
+        trace_dir = trace_root / trace_subdir / case / "traces"
+        if not trace_dir.is_dir():
+            raise FileNotFoundError(f"missing trace directory for {case}: {trace_dir}")
         normalized.append(
             {
                 "workload": workload,
@@ -48,7 +48,7 @@ def check_summary(rows: list[dict[str, str]], workload: str, trace_subdir: str) 
                 "raw_events": row["raw_events"],
                 "maya_events": row["maya_events"],
                 "flexeva_events": row["flexeva_events"],
-                "trace_dir": str(trace_dir),
+                "trace_dir": str(trace_dir.resolve()),
             }
         )
     return normalized
@@ -59,17 +59,18 @@ def main() -> int:
     parser.add_argument(
         "--gpt-summary",
         type=Path,
-        default=RESULT_DIR / "generated_table4" / "gpt" / "summary.csv",
+        required=True,
     )
     parser.add_argument(
         "--moe-summary",
         type=Path,
-        default=RESULT_DIR / "generated_table4" / "routed-moe" / "summary.csv",
+        required=True,
     )
-    parser.add_argument("--output", type=Path, default=OUTPUT)
+    parser.add_argument("--trace-root", type=Path, required=True)
+    parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
-    rows = check_summary(read_rows(args.gpt_summary), "GPT", "gpt")
-    rows.extend(check_summary(read_rows(args.moe_summary), "Routed-MoE", "routed-moe"))
+    rows = check_summary(read_rows(args.gpt_summary), "GPT", args.trace_root, "gpt")
+    rows.extend(check_summary(read_rows(args.moe_summary), "Routed-MoE", args.trace_root, "routed-moe"))
     if len(rows) != 8:
         raise ValueError(f"Table 4 requires eight generated rows, found {len(rows)}")
     args.output.parent.mkdir(parents=True, exist_ok=True)

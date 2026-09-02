@@ -185,7 +185,7 @@ def write_csv(path: Path, analyses: list[dict[str, object]]) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--result-json", type=Path, default=ROOT / "result/e4/generated/table6/result.json")
+    parser.add_argument("--result-json", type=Path, required=True)
     parser.add_argument("--source", type=Path, default=ROOT / "script/e4/workload/table4_pytorch/models.py")
     parser.add_argument("--out-dir", type=Path)
     args = parser.parse_args()

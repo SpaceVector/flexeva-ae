@@ -135,6 +135,7 @@ def generate_synthetic_batch(
 def main() -> None:
     args = parse_args()
     cfg = build_config(args)
+    torch.manual_seed(cfg.data.seed)
     device, ep_group = init_runtime(cfg)
 
     summary = {"target_id": cfg.target_id, **cfg.derived_summary(), "device": str(device)}

@@ -1,7 +1,0 @@
-Workload,Mutation,Reuse rate,Speedup
-GPT,attention backward,84.77,6.57
-GPT,MLP backward,84.14,6.31
-GPT,optimizer step,84.72,6.54
-Routed-MoE,optimizer step,67.03,3.03
-Routed-MoE,attention backward,66.99,3.03
-Routed-MoE,router backward,66.95,3.03

@@ -1,2 +1,12 @@
 .deps/
 .venv/
+__pycache__/
+*.pyc
+result/
+plot/
+trace/e1/
+trace/e2/table4/
+trace/e2/figure5/
+trace/e3/figure6/
+trace/e3/figure8/
+trace/e4/table6/

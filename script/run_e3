@@ -2,9 +2,19 @@
 set -euo pipefail
 
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-EXPERIMENT="${1:-figure6}"
+EXPERIMENT="${1:-all}"
 
 case "$EXPERIMENT" in
+    all)
+        [[ $# -le 1 ]] || { echo "usage: script/run_e3 [all|figure6|figure7|figure8 [mode]]" >&2; exit 2; }
+        E3_RUN_ID="${E3_RUN_ID:-e3-$(date -u +%Y%m%d-%H%M%S)}"
+        export FIGURE6_RUN_ID="${FIGURE6_RUN_ID:-$E3_RUN_ID-figure6}"
+        export FIGURE7_RUN_ID="${FIGURE7_RUN_ID:-$E3_RUN_ID-figure7}"
+        export FIGURE8_RUN_ID="${FIGURE8_RUN_ID:-$E3_RUN_ID-figure8}"
+        "$ROOT/script/run_e3" figure6
+        "$ROOT/script/run_e3" figure7 run
+        exec "$ROOT/script/run_e3" figure8 run
+        ;;
     figure6)
         [[ $# -le 1 ]] || { echo "usage: script/run_e3 [figure6|figure7|figure8 [mode]]" >&2; exit 2; }
         source "$ROOT/script/lib/ae_env.sh"
@@ -21,7 +31,7 @@ case "$EXPERIMENT" in
         exec bash "$ROOT/script/e3/figure8/run.sh" "${2:-run}"
         ;;
     *)
-        echo "usage: script/run_e3 [figure6|figure7 [self-test|probe|run|report|verify]|figure8 [self-test|run|verify]]" >&2
+        echo "usage: script/run_e3 [all|figure6|figure7 [self-test|probe|run|report|verify]|figure8 [self-test|run|verify]]" >&2
         exit 2
         ;;
 esac

@@ -109,7 +109,7 @@ def _replace_phase_time(phases: dict[str, object], key: str, value_s: float) -> 
 def apply_figure6_wall_time_contract(
     anchor_row: dict[str, object], rows: list[dict[str, object]]
 ) -> None:
-    """Apply the submitted Figure 6 process-wall emulation boundary in place."""
+    """Apply the Figure 6 process-wall emulation boundary in place."""
     anchor_wall_s = float(anchor_row["run"]["elapsed_s"])
     for section_name in ("maya_full", "flexeva_anchor_init"):
         _replace_phase_time(anchor_row[section_name]["phases_s"], "maya_emulation_s", anchor_wall_s)
@@ -154,7 +154,7 @@ def update_timing_method(method: dict[str, object]) -> None:
                 "+optimizer step; then TP1-PP8-DP2"
             ),
             "timing_boundary": (
-                "submitted-Figure-6-compatible accounting; full fake-CUDA emulation uses subprocess wall time "
+                "Figure 6 accounting; full fake-CUDA emulation uses subprocess wall time "
                 "including startup and teardown, while source-selective emulation uses marked region windows"
             ),
             "maya_full": (
@@ -172,7 +172,7 @@ def update_timing_method(method: dict[str, object]) -> None:
                 "full candidate process wall time"
             ),
             "step_window_diagnostic": (
-                "per-rank marked training-step windows are retained as synchronization/core-time diagnostics"
+                "per-rank marked training-step windows are synchronization/core-time diagnostics"
             ),
         }
     )
@@ -230,7 +230,7 @@ def _annotate_result(out_dir: Path) -> None:
     readme = readme.replace("changes to `TP2-PP8-DP1`", "changes to `TP1-PP8-DP2`")
     readme = readme.replace(
         "Core time excludes process startup/teardown. `Maya-style + FlexEva trace-RAS` is an author ablation, not an original Maya feature.",
-        "Full fake-CUDA emulation uses process wall time to match submitted Figure 6; marker windows remain diagnostics and define source-selective emulation. `Maya-style + FlexEva trace-RAS` is an author ablation, not an original Maya feature.",
+        "Full fake-CUDA emulation uses the Figure 6 process-wall boundary; marker windows remain diagnostics and define source-selective emulation. `Maya-style + FlexEva trace-RAS` is an author ablation, not an original Maya feature.",
     )
     readme_path.write_text(readme, encoding="utf-8")
 

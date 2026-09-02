@@ -26,16 +26,18 @@ plot() {
 }
 
 if [[ "$ACTION" == self-test ]]; then
-    "$PYTHON_BIN" "$ROOT/script/e3/plot_figure8.py"
-    exec "$PYTHON_BIN" "$ROOT/script/e3/validate_results.py"
+    exec "$PYTHON_BIN" -m py_compile \
+        "$ROOT/script/e3/figure8/measure_figure8.py" \
+        "$ROOT/script/e3/plot_figure8.py" \
+        "$ROOT/script/e3/validate_results.py"
 fi
 
 if [[ "$ACTION" == verify ]]; then
     : "${FIGURE8_RESULT_ROOT:?set FIGURE8_RESULT_ROOT to a complete Figure 8 result directory}"
     plot "$FIGURE8_RESULT_ROOT"
     "$PYTHON_BIN" "$ROOT/script/e3/validate_results.py" \
-        --require-figure8-generated --figure8-generated-dir "$FIGURE8_RESULT_ROOT" \
-        --figure8-max-timing-drift-rel "${FIGURE8_MAX_TIMING_DRIFT_REL:-0.10}"
+        --figure8-generated-dir "$FIGURE8_RESULT_ROOT"
+    mkdir -p "$ROOT/plot"
     install -m 0644 "$FIGURE8_RESULT_ROOT/figure8.pdf" "$ROOT/plot/figure8.pdf"
     exit
 fi
@@ -101,8 +103,8 @@ fi
 if [[ "$FLEXMAYA_NODE_RANK" == 0 ]]; then
     plot "$RESULT_ROOT"
     "$PYTHON_BIN" "$ROOT/script/e3/validate_results.py" \
-        --require-figure8-generated --figure8-generated-dir "$RESULT_ROOT" \
-        --figure8-max-timing-drift-rel "${FIGURE8_MAX_TIMING_DRIFT_REL:-0.10}"
+        --figure8-generated-dir "$RESULT_ROOT"
+    mkdir -p "$ROOT/plot"
     install -m 0644 "$RESULT_ROOT/figure8.pdf" "$ROOT/plot/figure8.pdf"
     echo "figure8: complete data: $RESULT_ROOT"
 fi

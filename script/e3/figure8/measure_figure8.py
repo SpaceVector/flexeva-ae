@@ -115,7 +115,7 @@ def step_begin_skew_s(case: MegatronCase, trace_dir: Path) -> float:
 
 
 def parse_case_raw_events_with_regions(case: MegatronCase, trace_dir: Path) -> list[object]:
-    """Preserve the submitted Figure 8 event population, including context ops."""
+    """Preserve the Figure 8 event population, including context operations."""
     events: list[object] = []
     next_id = 1
     for rank in range(case.world_size):

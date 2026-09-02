@@ -2,7 +2,7 @@
 """Pure PyTorch Table 4 style model workloads for Maya fake-cuda capture.
 
 The goal is workload generality coverage, not exact upstream reference
-implementations.  The four retained model families are dependency-free PyTorch
+implementations.  The four model families are dependency-free PyTorch
 modules selected from the models Maya reports for PyTorch Table 4 validation:
 ResNet, ViT, BERT, and Llama.  They exercise representative CNN, vision
 transformer, encoder-LM, and decoder-LM behavior while keeping the entrypoint

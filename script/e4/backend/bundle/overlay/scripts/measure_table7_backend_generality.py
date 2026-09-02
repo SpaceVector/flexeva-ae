@@ -19,7 +19,6 @@ from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-ANCHOR_ROOT = REPO_ROOT / "inputs/table7_anchor_20260901"
 PHASE_RE = re.compile(
     r"ASTRA-sim RAS simulation phase\[[^]]+\]: wall_seconds=([0-9.eE+-]+) simulated_ns=([0-9]+)"
 )
@@ -254,18 +253,8 @@ def run_astra(repo_root: Path, binary: Path, workload_prefix: Path, comm_groups:
     return record
 
 
-def prepare_workload(repo_root: Path, anchor_root: Path, out_dir: Path, workload: str, logs: Path, binary: Path, rebuild_anchor: bool) -> dict[str, object]:
+def prepare_workload(repo_root: Path, out_dir: Path, workload: str, logs: Path, binary: Path) -> dict[str, object]:
     spec = WORKLOADS[workload]
-    manifest = json.loads((anchor_root / "manifest.json").read_text(encoding="utf-8"))["anchors"][workload]
-    if manifest["world_size"] != spec["world_size"]:
-        raise ValueError(f"{workload} world size differs from the persisted anchor input")
-    persisted_replay_cache = anchor_root / workload / "baseline.replay_cache.json"
-    if sha256(persisted_replay_cache) != manifest["replay_cache_sha256"]:
-        raise ValueError(f"{workload} replay-cache hash mismatch")
-    cache = json.loads(persisted_replay_cache.read_text(encoding="utf-8"))
-    if cache["context_fingerprint"] != manifest["context_fingerprint"] or len(cache["workload_partitions"]) != manifest["partition_count"]:
-        raise ValueError(f"{workload} replay-cache metadata mismatch")
-
     workload_dir = out_dir / workload / "workload"
     prefix = workload_dir / str(spec["baseline_name"])
     comm_groups = workload_dir / str(spec["comm_name"])
@@ -276,44 +265,31 @@ def prepare_workload(repo_root: Path, anchor_root: Path, out_dir: Path, workload
         cwd=repo_root,
     )
     total_bytes, fingerprint = workload_fingerprint(prefix, int(spec["world_size"]))
-    if total_bytes != manifest["generated_workload_bytes"] or fingerprint != manifest["generated_workload_fingerprint"]:
-        raise ValueError(f"{workload} generated baseline differs from the persisted anchor input")
-    if sha256(comm_groups) != manifest["comm_groups_sha256"]:
-        raise ValueError(f"{workload} communicator groups differ from the persisted anchor input")
-
-    replay_cache = persisted_replay_cache
-    anchor_record: dict[str, object] = {
-        "mode": "persisted",
+    anchor_dir = out_dir / workload / "anchor"
+    full = run_astra(
+        repo_root, binary, prefix, comm_groups,
+        repo_root / str(spec["logical_topology"]), anchor_dir / "full",
+        int(spec["world_size"]), str(spec["ns3_context_stub"]),
+    )
+    print(json.dumps({"workload": workload, "mode": "anchor_full", "phase": full["phase"]}), flush=True)
+    replay_cache = anchor_dir / "baseline.replay_cache.json"
+    cache_build = run_logged(
+        [sys.executable, str(repo_root / "utils/ras_replay_cache.py"), full["trace"]["path"], "-o", str(replay_cache), "--summary"],
+        logs / f"build-{workload}-anchor.stdout.txt",
+        logs / f"build-{workload}-anchor.stderr.txt",
+        cwd=repo_root,
+    )
+    cache = json.loads(replay_cache.read_text(encoding="utf-8"))
+    if not cache["workload_partitions"] or cache["summary"]["missing_finish"] != 0:
+        raise ValueError(f"{workload} fresh replay cache is incomplete")
+    anchor_record = {
+        "mode": "fresh_full_simulation",
+        "full": full,
+        "cache_build": cache_build,
         "replay_cache": str(replay_cache),
         "replay_cache_sha256": sha256(replay_cache),
         "context_fingerprint": cache["context_fingerprint"],
     }
-    if rebuild_anchor:
-        anchor_dir = out_dir / workload / "anchor_rebuild"
-        full = run_astra(
-            repo_root, binary, prefix, comm_groups,
-            repo_root / str(spec["logical_topology"]), anchor_dir / "full",
-            int(spec["world_size"]), str(spec["ns3_context_stub"]),
-        )
-        print(json.dumps({"workload": workload, "mode": "anchor_full", "phase": full["phase"]}), flush=True)
-        replay_cache = anchor_dir / "baseline.replay_cache.json"
-        cache_build = run_logged(
-            [sys.executable, str(repo_root / "utils/ras_replay_cache.py"), full["trace"]["path"], "-o", str(replay_cache), "--summary"],
-            logs / f"rebuild-{workload}-anchor.stdout.txt",
-            logs / f"rebuild-{workload}-anchor.stderr.txt",
-            cwd=repo_root,
-        )
-        cache = json.loads(replay_cache.read_text(encoding="utf-8"))
-        if len(cache["workload_partitions"]) != manifest["partition_count"] or cache["summary"]["missing_finish"] != 0:
-            raise ValueError(f"{workload} rebuilt replay cache is incomplete")
-        anchor_record = {
-            "mode": "fresh_full_simulation",
-            "full": full,
-            "cache_build": cache_build,
-            "replay_cache": str(replay_cache),
-            "replay_cache_sha256": sha256(replay_cache),
-            "context_fingerprint": cache["context_fingerprint"],
-        }
 
     index = out_dir / workload / "baseline.workload_index.json"
     self_diff = out_dir / workload / "baseline.self.diff.json"
@@ -454,7 +430,6 @@ def run_experiment(args: argparse.Namespace) -> int:
     existing_pythonpath = os.environ.get("PYTHONPATH")
     os.environ["PYTHONPATH"] = str(repo_root) + (os.pathsep + existing_pythonpath if existing_pythonpath else "")
     binary = args.binary.resolve()
-    anchor_root = args.anchor_root.resolve()
     out_dir = args.out_dir.resolve()
     if not binary.is_file() or not os.access(binary, os.X_OK):
         raise FileNotFoundError(f"ASTRA-Sim ns-3 binary is unavailable: {binary}")
@@ -465,11 +440,8 @@ def run_experiment(args: argparse.Namespace) -> int:
     logs = out_dir / "logs"
     logs.mkdir()
     selected_workloads = list(dict.fromkeys(str(CASES[name]["workload"]) for name in selected))
-    rebuild_anchors = set(args.rebuild_anchor)
-    if not rebuild_anchors.issubset(selected_workloads):
-        raise ValueError("--rebuild-anchor must name a selected workload")
     prepared = {
-        workload: prepare_workload(repo_root, anchor_root, out_dir, workload, logs, binary, workload in rebuild_anchors)
+        workload: prepare_workload(repo_root, out_dir, workload, logs, binary)
         for workload in selected_workloads
     }
     for workload, state in prepared.items():
@@ -513,12 +485,11 @@ def run_experiment(args: argparse.Namespace) -> int:
             "pairing": "full and RAS refresh consume the same regenerated candidate Chakra ET prefix",
             "output_gate": "full and refresh simulated_ns must match for every repetition",
             "reuse_rate": "reusable workload partitions / total workload partitions",
-            "submitted_reuse_rate_correction": "submitted percentages were 1 - 1/speedup and are not reuse measurements",
             "python_protobuf_implementation": os.environ["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"],
         },
         "source": {
             "repo_root": str(repo_root), "binary": str(binary), "binary_sha256": sha256(binary),
-            "driver_sha256": sha256(Path(__file__).resolve()), "anchor_manifest": str(anchor_root / "manifest.json"),
+            "driver_sha256": sha256(Path(__file__).resolve()),
             "anchors": {workload: state["anchor"] for workload, state in prepared.items()},
         },
         "selected_cases": selected,
@@ -566,12 +537,10 @@ def parse_args() -> argparse.Namespace:
     sub = parser.add_subparsers(dest="action", required=True)
     run = sub.add_parser("run")
     run.add_argument("--repo-root", type=Path, default=REPO_ROOT)
-    run.add_argument("--anchor-root", type=Path, default=ANCHOR_ROOT)
     run.add_argument("--binary", type=Path, default=REPO_ROOT / "extern/network_backend/ns-3/build/scratch/ns3.42-AstraSimNetwork-default")
     run.add_argument("--out-dir", type=Path, required=True)
     run.add_argument("--repeats", type=int, default=3)
     run.add_argument("--case", action="append", choices=tuple(CASES))
-    run.add_argument("--rebuild-anchor", action="append", choices=tuple(WORKLOADS), default=[])
     verify = sub.add_parser("verify")
     verify.add_argument("--result", type=Path, required=True)
     verify.add_argument("--require-all", action="store_true")

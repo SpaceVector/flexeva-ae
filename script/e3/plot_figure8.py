@@ -7,13 +7,14 @@ import argparse
 import csv
 from pathlib import Path
 
+import matplotlib
+
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.ticker import FixedLocator, FuncFormatter
 
 
 ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_SCALE = ROOT / "result" / "e3" / "figure8a.csv"
-DEFAULT_TRACE = ROOT / "result" / "e3" / "figure8b.csv"
 DEFAULT_OUTPUT = ROOT / "plot" / "figure8.pdf"
 SYSTEMS = (
     ("Maya-full", "Maya", "#4C78A8", "o"),
@@ -135,8 +136,8 @@ def plot_figure8(scale_path: Path, trace_path: Path, output: Path) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--scale", type=Path, default=DEFAULT_SCALE)
-    parser.add_argument("--trace", type=Path, default=DEFAULT_TRACE)
+    parser.add_argument("--scale", type=Path, required=True)
+    parser.add_argument("--trace", type=Path, required=True)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     args = parser.parse_args()
     plot_figure8(args.scale.resolve(), args.trace.resolve(), args.output.resolve())

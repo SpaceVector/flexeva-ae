@@ -1,197 +1,146 @@
 # FlexEva Artifact Evaluation
 
-FlexEva incrementally evaluates changes to distributed-training workloads. It
-reuses an evaluated anchor, identifies the affected source and trace
-partitions, refreshes those partitions when possible, and replays the resulting
-compact trace.
+FlexEva incrementally evaluates distributed-training changes by reusing an
+evaluated anchor, refreshing affected source and trace partitions, and replaying
+the resulting compact trace. The implementation is included directly under
+`FlexEva/`; this repository has no submodules.
 
-## Artifact overview
-
-This artifact provides the FlexEva implementation, experiment drivers, input
-descriptions, result processing, and plotting code needed to reproduce the
-paper's main results. FlexEva is included directly under `FlexEva/`; no
-submodule initialization is required.
-
-| Experiment | Paper output | Detailed guide |
+| Experiment | Reproduced output | Guide |
 | --- | --- | --- |
 | E1 | Figure 1(b)--(c) | [`script/e1/E1.md`](script/e1/E1.md) |
 | E2 | Table 4 and Figure 5 | [`script/e2/E2.md`](script/e2/E2.md) |
 | E3 | Figures 6--8 | [`script/e3/E3.md`](script/e3/E3.md) |
 | E4 | Tables 6 and 7 | [`script/e4/E4.md`](script/e4/E4.md) |
-| E5 | Table 8 and Section 7.5 per-round speedup | [`script/e5/E5.md`](script/e5/E5.md) |
+| E5 | Table 8 and per-round speedup | [`script/e5/E5.md`](script/e5/E5.md) |
 
-## Server access
+## Reviewer server access
 
-Access to the provided AE server is authorized by SSH public key. Before
-connecting:
+Access is authorized by SSH public key. Contact the authors through the
+artifact-evaluation discussion channel and send the public key to be installed
+for the reviewer account. Send only the public key, never the private key.
 
-1. Contact the authors through the official artifact-evaluation discussion
-   channel.
-2. Submit the SSH public key that should be authorized for the reviewer
-   account. Send only the public key (normally a `.pub` file), never a private
-   key.
-3. Wait for confirmation that the key has been installed.
-
-After access is confirmed, connect to the coordinator with:
+After the authors confirm installation, connect to the coordinator:
 
 ```bash
 ssh -p 18405 ae_reviewer@182.92.117.22
 ```
 
-The second node is already connected to the coordinator through the private AE
-environment. Reviewers do not need its address, account, repository path, or
-rendezvous settings.
+The peer node is already connected inside the evaluation environment. Its
+address and launch settings are discovered automatically.
 
-## Repository access
+## Repository checkout
 
-The coordinator normally provides the checkout in the login directory:
+The coordinator normally already contains the checkout:
 
 ```bash
-cd flexeva-ae
+cd ~/flexeva-ae
 ```
 
-If a fresh checkout is needed, the primary repository is:
+For a fresh checkout, use GitHub:
 
 ```bash
 git clone https://github.com/SpaceVector/flexeva-ae.git
 cd flexeva-ae
 ```
 
-Connectivity from the provided AE server to GitHub can be unstable. If a
-GitHub clone or pull fails, use the Gitee mirror:
+Connectivity from the evaluation server to GitHub can be unstable. If cloning
+or pulling from GitHub fails, use the Gitee mirror:
 
 ```bash
 git clone https://gitee.com/space-line-vector/flexeva-ae.git
 cd flexeva-ae
 ```
 
-For an existing checkout, switch its remote and update it with:
+For an existing checkout:
 
 ```bash
 git remote set-url origin https://gitee.com/space-line-vector/flexeva-ae.git
 git pull --ff-only
 ```
 
-Both repositories publish the same `main` commit. `script/setup` also verifies
-that the coordinator and peer use the exact same commit.
+GitHub and Gitee publish the same `main` commit.
 
-## Environment setup
+## 1. Prepare both nodes
 
-Run setup once from the coordinator checkout:
+Run setup once on the coordinator:
 
 ```bash
 script/setup
 ```
 
-`script/setup` discovers the preconfigured peer, creates or safely
-fast-forwards its checkout when needed, and prepares both nodes. It installs
-the checksum-pinned uv binary, uses uv to provision Python 3.12.13 and all
-Python packages, builds the native components, and runs the complete setup
-check on each node. It does not depend on the system Python version.
+The command discovers the peer, synchronizes its checkout to the coordinator
+commit, and prepares both nodes. It installs the pinned uv release, uses uv to
+install Python 3.12.13 and the Python packages, builds native components, and
+runs the setup checks. The system Python version is not used.
 
-The default download sources are the Astral release service for uv, npmmirror
-for managed Python, and Aliyun mirrors for PyPI and CUDA 12.8 wheels. A
-successful setup ends with:
+The default sources are npmmirror for uv-managed Python, Aliyun for PyPI and
+CUDA wheels, and the configured source mirrors for native dependencies. To use
+upstream Python package services, set `UV_DEFAULT_INDEX`,
+`UV_PYTHON_INSTALL_MIRROR`, and `TORCH_INDEX_URL` before setup.
+
+Successful setup ends with:
 
 ```text
 AE two-node setup: PASS
 ```
 
-Do not start `script/setup` separately on the peer.
+Do not run `script/setup` separately on the peer.
 
-## Full reproduction
+## 2. Reproduce E1--E5
 
-After setup succeeds, reproduce E1 through E5 from the coordinator with:
+Run the complete workflow once on the coordinator:
 
 ```bash
 script/run_all
 ```
 
-Do not start a matching command on the peer. Each distributed runner starts
-the peer automatically, waits for both nodes, and returns the peer output to
-the coordinator. The workflow stops at the first failed experiment and ends
-successfully with:
+`script/run_all` is a thin aggregate of the five experiment entry points:
+`script/run_e1`, `script/run_e2`, `script/run_e3`, `script/run_e4`, and
+`script/run_e5`. Each entry point performs its own measurements, validation,
+table construction, and plotting. Distributed entries start and wait for the
+peer automatically; do not start a matching command there.
+
+The workflow stops at the first failure. Success ends with:
 
 ```text
 AE full reproduction: PASS (<run-id>)
 ```
 
-The command assigns one timestamped run ID and regenerates Table 4, Figures 1
-and 5--8, Tables 6--8, and the E5 per-round speedup result. E1 and the
-32/64/128-GPU Figure 5 points use the supplied real trace inputs; the remaining
-paths launch their documented measurements.
+## Input and output policy
 
-Generated data is written below `result/<experiment>/generated/`, `trace/`,
-and `plot/`. Fresh runs generally require a new run ID or an empty output
-directory.
+The repository contains no experiment-result CSV, JSON, or PDF files. They are
+created only by an actual run and are ignored by Git.
 
-## Individual experiment runners
+The only supplied experiment data are raw traces for scales that cannot run on
+the two-node reviewer server:
 
-Run these commands once on the coordinator. The runner selects single-node or
-automatic two-node execution as required.
+- E1: the five 128-GPU rounds used by Figure 1;
+- E2: the 32-, 64-, and 128-GPU points used by Figure 5.
 
-| Experiment | Command or modes | Execution |
-| --- | --- | --- |
-| E1 | `script/run_e1`; `script/run_e1 real` is the separate 16-node path | Coordinator for the supplied-trace workflow |
-| E2 | `FIGURE5_RUN_ID=<id> script/run_e2` for Figure 5; `script/run_e2 table4` for Table 4 | Figure 5 adds the peer automatically; Table 4 stays on the coordinator |
-| E3 | `FIGURE6_RUN_ID=<id> script/run_e3`; `FIGURE7_RUN_ID=<id> script/run_e3 figure7 run`; `FIGURE8_RUN_ID=<id> script/run_e3 figure8 run` | Figures 6--8 add the peer automatically |
-| E4 | `script/run_e4` | Coordinator |
-| E5 | `script/run_e5 paper-self-test`; guarded `script/e3/server.sh run <id> 8 -- script/run_e5 paper` | Coordinator |
+E2's 8- and 16-GPU traces and every E3--E5 measurement are generated during
+the current run. E1 also runs the five workload snapshots under logical-rank
+emulation to obtain routing metrics; the supplied trace is used only for the
+128-GPU timing and communication measurements.
 
-Figure 7 modes are `self-test`, `probe`, `run`, `report`, and `verify`.
-Figure 8 modes are `self-test`, `run`, and `verify`. Figure 7 and Figure 8
-production runs require `FIGURE7_RUN_ID` and `FIGURE8_RUN_ID`, respectively.
-E4 downloads the pinned ASTRA-Sim source into `.deps/` the first time Table 7
-is built.
+Generated artifacts are written below:
 
-## Environment requirements
-
-Fresh GPU experiments use the environment enforced by `script/check_setup`:
-
-- Linux x86-64 and a checkout located on GPFS, with at least 20 GiB free for
-  setup;
-- eight NVIDIA A100-SXM4-80GB GPUs with full NV12 topology per node;
-- `curl` or `wget`, plus network access for uv 0.11.7, its managed Python
-  3.12.13 distribution, and Python wheels;
-- PyTorch 2.8.0+cu128 and CUDA toolkit 12.8;
-- g++ 11.4.x, CMake 3.22.1, `git`, `make`, `protoc`, `mpicxx`, `ssh`, and
-  `nvidia-smi`.
-
-The distributed runners enforce larger free-space defaults: 500 GiB for E2
-Figure 5 and E3 Figures 6--7, and 50 GiB for E3 Figure 8. Their
-`*_MIN_FREE_GIB` environment variables expose the corresponding checks.
-
-Useful overrides are:
-
-```bash
-export CUDA_HOME=/usr/local/cuda
-export JOBS=8
-export MIN_GPFS_FREE_GIB=20
+```text
+result/e1/generated/<run-id>/
+result/e2/generated/{table4,figure5}/<run-id>/
+result/e3/generated/{figure6,figure7,figure8}/<run-id>/
+result/e4/generated/<run-id>/
+result/e5/generated/<run-id>/
+trace/
+plot/
 ```
 
-To use upstream package services instead of the default mirrors, set
-`UV_DEFAULT_INDEX`, `UV_PYTHON_INSTALL_MIRROR`, and `TORCH_INDEX_URL` before
-`script/setup`.
+E5's full capture stays in the guarded server run directory because it is
+large; its final Table 8 and speedup tables are copied to the result directory
+above.
 
-## Repository layout
-
-| Path | Contents |
-| --- | --- |
-| [`FlexEva/`](FlexEva/README.md) | FlexEva core, the independent Maya-style evaluator, FakeCUDA, and tests |
-| `script/` | Setup, validation, plotting, and experiment entry points |
-| `result/` | Experiment result tables and generated output locations |
-| `plot/` | Paper figures and generated plot outputs |
-| `trace/` | Runtime trace locations |
-| `large-cluster/` | External trace links and the independent Figure 5 estimator |
-
-## External trace inputs
-
-The four links under `large-cluster/` point to traces mounted on the provided
-evaluation servers. They may be broken in a normal clone. The full
-`script/run_all` workflow requires them for E1 and the 32/64/128-GPU points in
-E2 Figure 5.
-
-Use these overrides when the same data is mounted elsewhere:
+The supplied trace links under `large-cluster/` target mounts on the evaluation
+server and may be broken in another clone. Equivalent mounts can be selected
+with:
 
 ```bash
 export E1_TRACE_ROOT=/path/to/historical_sparse_moe
@@ -199,6 +148,31 @@ export FIGURE5_LARGE_CLUSTER_ROOT=/path/to/figure5-large-cluster
 export FIGURE5_ESTIMATOR_MODEL=/path/to/independent-estimator.json
 ```
 
-The Figure 5 large-cluster root must contain the `gpt-32`, `gpt-64`, and
-`gpt-128` trace trees. The experiment fails when required real traces are
-missing; it does not substitute synthetic traces.
+## Environment requirements
+
+The setup check enforces the reviewer-server contract:
+
+- Linux x86-64 on the configured shared filesystem;
+- two nodes, each with eight NVIDIA A100-SXM4-80GB GPUs and full NV12 topology;
+- PyTorch 2.8.0+cu128 and CUDA toolkit 12.8;
+- g++ 11.4.x, CMake 3.22.1, `git`, `make`, `protoc`, `mpicxx`, and `ssh`;
+- sufficient shared storage for raw trace capture.
+
+Useful setup overrides are:
+
+```bash
+export CUDA_HOME=/usr/local/cuda
+export JOBS=8
+export MIN_GPFS_FREE_GIB=20
+```
+
+## Repository layout
+
+| Path | Contents |
+| --- | --- |
+| [`FlexEva/`](FlexEva/README.md) | FlexEva core, Maya-style evaluator, FakeCUDA, and tests |
+| `script/` | Setup and E1--E5 experiment entry points |
+| `large-cluster/` | Links to the supplied large-scale raw traces |
+| `result/` | Created result tables and measurement summaries |
+| `trace/` | Created raw traces from runnable scales |
+| `plot/` | Created paper figures |

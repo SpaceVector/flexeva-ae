@@ -1,13 +1,10 @@
-# E4 trace output
+# E4 generated traces
 
-Table 6 generates one FakeCUDA trace tree per workload and variant:
+Table 6 creates one run-specific FakeCUDA trace tree per workload and variant:
 
 ```text
-trace/e4/table6/<case>/{anchor,candidate}/traces/
-  rank_<n>.jsonl
-  rank_<n>_markers.jsonl
+trace/e4/<run-id>/table6/<case>/{anchor,candidate}/traces/
 ```
 
-These files are produced by `script/run_e4`; they are not precomputed inputs.
-Table 7 is an ASTRA-Sim backend experiment, so its simulation traces remain
-with the generated backend results under `result/e4/generated/table7/`.
+Table 7 keeps its fresh ASTRA-Sim traces with the generated result below
+`result/e4/generated/<run-id>/table7/`.
