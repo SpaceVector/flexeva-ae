@@ -3,39 +3,68 @@ set -euo pipefail
 
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
 PYTHON_BIN="${PYTHON_BIN:-$ROOT/.venv/bin/python}"
+MODE="${FIGURE5_MODE:-trace}"
 MAYA_ROOT="${MAYA_ROOT:-$ROOT/FlexEva/backends/maya}"
 PROOT_BIN="${PROOT_BIN:-$ROOT/.deps/proot-5.3.1/bin/proot}"
 LARGE_ROOT="${FIGURE5_LARGE_CLUSTER_ROOT:-$ROOT/large-cluster/e2}"
+SOURCE_LEDGER="${FIGURE5_SOURCE_LEDGER:-$ROOT/large-cluster/e2/figure5-source.json}"
 ESTIMATOR_MODEL="${FIGURE5_ESTIMATOR_MODEL:-$LARGE_ROOT/estimator.json}"
 PEER_WAIT_S="${FLEXMAYA_PEER_WAIT_S:-14400}"
 REUSE_NATIVE="${FIGURE5_REUSE_NATIVE:-0}"
 REUSE_EVAL="${FIGURE5_REUSE_EVAL:-0}"
 RUN_ID="${FIGURE5_RUN_ID:-${FLEXMAYA_RUN_ID:-}}"
 
+[[ "$MODE" == trace || "$MODE" == native ]] || {
+    echo "figure5: mode must be trace or native" >&2
+    exit 2
+}
+
 if [[ "$PYTHON_BIN" != */* ]]; then
     PYTHON_BIN="$(command -v "$PYTHON_BIN" || true)"
 fi
 [[ -n "$PYTHON_BIN" ]] || { echo "figure5: Python is unavailable" >&2; exit 2; }
 PYTHON_BIN="$(cd -- "$(dirname -- "$PYTHON_BIN")" && pwd -P)/$(basename -- "$PYTHON_BIN")"
+: "${RUN_ID:?set FIGURE5_RUN_ID to a unique identifier}"
+RESULT_BASE="${FIGURE5_RESULT_ROOT:-$ROOT/result/e2/generated/figure5/$RUN_ID}"
+RESULT_ROOT="$RESULT_BASE/$MODE"
+[[ "$LARGE_ROOT" == /* ]] || LARGE_ROOT="$PWD/$LARGE_ROOT"
+[[ "$SOURCE_LEDGER" == /* ]] || SOURCE_LEDGER="$PWD/$SOURCE_LEDGER"
+[[ "$RESULT_BASE" == /* ]] || RESULT_BASE="$PWD/$RESULT_BASE"
+[[ "$RESULT_ROOT" == /* ]] || RESULT_ROOT="$PWD/$RESULT_ROOT"
+
+if [[ "$MODE" == trace ]]; then
+    [[ ! -e "$RESULT_ROOT" ]] || {
+        echo "figure5: trace result exists; use a new FIGURE5_RUN_ID: $RESULT_ROOT" >&2
+        exit 2
+    }
+    mkdir -p "$RESULT_ROOT"
+    "$PYTHON_BIN" "$ROOT/script/e2/collect_figure5.py" \
+        --mode trace --source-ledger "$SOURCE_LEDGER" \
+        --large-trace-root "$LARGE_ROOT" --output-dir "$RESULT_ROOT"
+    "$PYTHON_BIN" "$ROOT/script/e2/validate_results.py" \
+        --figure5-mode trace --figure5-result-dir "$RESULT_ROOT"
+    "$PYTHON_BIN" "$ROOT/script/e2/plot_figure5.py" \
+        --mode trace --result-dir "$RESULT_ROOT" --output-dir "$ROOT/plot"
+    echo "figure5: trace-based limited reproduction complete: $RESULT_ROOT"
+    exit 0
+fi
 
 if [[ -z "${FLEXMAYA_NODE_RANK:-}" ]]; then
-    : "${RUN_ID:?set FIGURE5_RUN_ID to a unique guarded-run identifier}"
     exec "$PYTHON_BIN" "$ROOT/script/lib/two_node.py" launch \
         --run-id "$RUN_ID" \
         --entry script/run_e2 \
         --local-python "$PYTHON_BIN" \
         --min-free-gib "${FIGURE5_MIN_FREE_GIB:-500}" \
-        -- figure5
+        -- figure5 native
 fi
 
 : "${RUN_ID:?figure5: coordinated workers require FLEXMAYA_RUN_ID}"
-TRACE_ROOT="${FIGURE5_TRACE_ROOT:-$ROOT/trace/e2/figure5/$RUN_ID}"
-RESULT_ROOT="${FIGURE5_RESULT_ROOT:-$ROOT/result/e2/generated/figure5/$RUN_ID}"
+TRACE_BASE="${FIGURE5_TRACE_ROOT:-$ROOT/trace/e2/figure5/$RUN_ID}"
+TRACE_ROOT="$TRACE_BASE/native"
 [[ "$PROOT_BIN" == /* ]] || PROOT_BIN="$PWD/$PROOT_BIN"
 [[ "$ESTIMATOR_MODEL" == /* ]] || ESTIMATOR_MODEL="$PWD/$ESTIMATOR_MODEL"
+[[ "$TRACE_BASE" == /* ]] || TRACE_BASE="$PWD/$TRACE_BASE"
 [[ "$TRACE_ROOT" == /* ]] || TRACE_ROOT="$PWD/$TRACE_ROOT"
-[[ "$LARGE_ROOT" == /* ]] || LARGE_ROOT="$PWD/$LARGE_ROOT"
-[[ "$RESULT_ROOT" == /* ]] || RESULT_ROOT="$PWD/$RESULT_ROOT"
 MAYA_ROOT="$(realpath -e "$MAYA_ROOT")"
 cd "$MAYA_ROOT"
 
@@ -294,13 +323,9 @@ evaluate_case() {
     cp "$output_dir/cache/simulate_summary.json" "$output_dir/simulate_summary.json"
 }
 
-for scale in 8 16 32 64 128; do
+for scale in 8 16; do
     gpt_args "$scale"
-    if (( scale <= 16 )); then
-        real_trace="$TRACE_ROOT/gpt/$scale/real"
-    else
-        real_trace="$LARGE_ROOT/gpt-$scale"
-    fi
+    real_trace="$TRACE_ROOT/gpt/$scale/real"
     evaluate_case "gpt-$scale" "$scale" "$GPT_TP" 8 "$real_trace" "$TRACE_ROOT/gpt/$scale/emulated" \
         "$RESULT_ROOT/gpt/$scale" "$GPT_WORKLOAD" "${GPT_ARGS[@]}"
 done
@@ -317,10 +342,10 @@ for definition in "${MOE_CASES[@]}"; do
 done
 
 "$PYTHON_BIN" "$ROOT/script/e2/collect_figure5.py" \
-    --summary-root "$RESULT_ROOT" --output-dir "$RESULT_ROOT" \
-    --native-trace-root "$TRACE_ROOT" --large-trace-root "$LARGE_ROOT"
+    --mode native --summary-root "$RESULT_ROOT" --output-dir "$RESULT_ROOT" \
+    --native-trace-root "$TRACE_ROOT"
 "$PYTHON_BIN" "$ROOT/script/e2/validate_results.py" \
-    --figure5-result-dir "$RESULT_ROOT"
+    --figure5-mode native --figure5-result-dir "$RESULT_ROOT"
 "$PYTHON_BIN" "$ROOT/script/e2/plot_figure5.py" \
-    --result-dir "$RESULT_ROOT" --output-dir "$ROOT/plot"
-echo "figure5: complete data: $RESULT_ROOT"
+    --mode native --result-dir "$RESULT_ROOT" --output-dir "$ROOT/plot"
+echo "figure5: native 8/16-GPU data complete: $RESULT_ROOT"

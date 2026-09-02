@@ -98,11 +98,11 @@ def main() -> int:
         if run_all.count(token) != 1:
             errors.append(f"script/run_all must call run_e{runner} exactly once")
     if errors:
-        print("fresh workflow contract: FAIL")
+        print("workflow input contract: FAIL")
         for error in errors:
             print(f"- {error}")
         return 1
-    print("fresh workflow contract: PASS")
+    print("workflow input contract: PASS")
     return 0
 
 

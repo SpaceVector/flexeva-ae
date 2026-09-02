@@ -1,0 +1,78 @@
+{
+  "schema": 1,
+  "scope": "Figure 5 paper-run measurements used for trace-based limited reproduction",
+  "gpt": [
+    {
+      "gpu_scale": 8,
+      "predicted_runtime_us": 3995658.791131695,
+      "actual_runtime_us": 3965724.0,
+      "source_mode": "paper_run_record",
+      "source_sha256": "4ac6907ebcd895f59c4823a493a91600252ef486c62fb4658d4ab642a2cfe439"
+    },
+    {
+      "gpu_scale": 16,
+      "predicted_runtime_us": 4198964.351646108,
+      "actual_runtime_us": 4050644.0,
+      "source_mode": "paper_run_record",
+      "source_sha256": "22bcde3e6393ab0f09a6c6f72c56b87d889ff2714279fef4311d4f07e9f7a74b"
+    },
+    {
+      "gpu_scale": 32,
+      "predicted_runtime_us": 4502284.0,
+      "actual_runtime_us": 4558752.0,
+      "source_mode": "provided_trace",
+      "source_sha256": "c6e65ca3bd4adc55815a69d7aa66fe6321655809253ef4e73e0bf37570de4069"
+    },
+    {
+      "gpu_scale": 64,
+      "predicted_runtime_us": 4523755.0,
+      "actual_runtime_us": 4556835.0,
+      "source_mode": "provided_trace",
+      "source_sha256": "11bed4032890063ca62285c43f7c5472d04b0812c978e90bd82993f5f213101b"
+    },
+    {
+      "gpu_scale": 128,
+      "predicted_runtime_us": 4870331.328,
+      "actual_runtime_us": 4967189.0,
+      "source_mode": "provided_trace",
+      "source_sha256": "35cb4cafe5acd0274459765489f825bfeaefd70a212ef0570ad2b2fcfec63dee"
+    }
+  ],
+  "moe": [
+    {
+      "case_id": "routed_moe_base",
+      "predicted_runtime_us": 1211955.3549999937,
+      "actual_runtime_us": 1125248.0,
+      "source_mode": "paper_run_record",
+      "source_sha256": "26fc6597f58fd1c498b7c8a3fc86ad7e8324c6ce0beb9a48ec166490d8f69152"
+    },
+    {
+      "case_id": "routed_moe_intra_group_0_1",
+      "predicted_runtime_us": 613019.5029999982,
+      "actual_runtime_us": 660012.0,
+      "source_mode": "paper_run_record",
+      "source_sha256": "4fc56b407f3f399124ed020b886a5052045718a6a262e99669cc2fa79b114591"
+    },
+    {
+      "case_id": "routed_moe_cross_group_0_8",
+      "predicted_runtime_us": 615410.4139999966,
+      "actual_runtime_us": 640233.0,
+      "source_mode": "paper_run_record",
+      "source_sha256": "abac228eedbe0fd73519435d1e3c90a97628ee8962ad2928f3f63d6029ac19af"
+    },
+    {
+      "case_id": "routed_moe_cross_group_0_15",
+      "predicted_runtime_us": 613408.4629999987,
+      "actual_runtime_us": 642369.0,
+      "source_mode": "paper_run_record",
+      "source_sha256": "5ef3cde33b7b7dcd0dcce6cc5057ccede8bb2ad45b7a9a66615440e14d7e4283"
+    },
+    {
+      "case_id": "routed_moe_boundary_7_8",
+      "predicted_runtime_us": 702055.9030000011,
+      "actual_runtime_us": 711798.0,
+      "source_mode": "paper_run_record",
+      "source_sha256": "394f2ee5214ac8649462e766bf6031990e324f494dc05b8769a3e9235b06c05e"
+    }
+  ]
+}

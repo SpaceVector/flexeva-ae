@@ -8,6 +8,7 @@ PROOT_BIN="${PROOT_BIN:-$ROOT/.deps/proot-5.3.1/bin/proot}"
 CUDA_HOME="${CUDA_HOME:-/usr/local/cuda}"
 CUDA_LIB_DIR="${CUDA_LIB_DIR:-$CUDA_HOME/lib64}"
 MIN_GPFS_FREE_GIB="${MIN_GPFS_FREE_GIB:-20}"
+FIGURE5_INPUT_ROOT="${FIGURE5_LARGE_CLUSTER_ROOT:-$ROOT/large-cluster/e2}"
 
 fail() {
     echo "setup check: FAIL: $*" >&2
@@ -23,6 +24,7 @@ if [[ "$PYTHON_BIN" != */* ]]; then
 fi
 [[ -n "$PYTHON_BIN" ]] || fail "Python is unavailable"
 PYTHON_BIN="$(cd -- "$(dirname -- "$PYTHON_BIN")" && pwd -P)/$(basename -- "$PYTHON_BIN")"
+[[ "$FIGURE5_INPUT_ROOT" == /* ]] || FIGURE5_INPUT_ROOT="$ROOT/$FIGURE5_INPUT_ROOT"
 MAYA_ROOT="$(realpath -e "$MAYA_ROOT")"
 [[ -x "$PROOT_BIN" ]] || fail "PRoot is unavailable: $PROOT_BIN"
 PROOT_BIN="$(realpath -e "$PROOT_BIN")"
@@ -31,7 +33,9 @@ PROOT_BIN="$(realpath -e "$PROOT_BIN")"
 for name in git cmake g++ make protoc mpicxx nvidia-smi; do
     require_command "$name"
 done
-"$PYTHON_BIN" "$ROOT/script/check_fresh_workflow.py" || fail "fresh workflow contract failed"
+"$PYTHON_BIN" "$ROOT/script/check_fresh_workflow.py" || fail "workflow input contract failed"
+"$PYTHON_BIN" "$ROOT/script/e2/collect_figure5.py" --self-test \
+    || fail "Figure 5 mode contract failed"
 [[ -x "$CUDA_HOME/bin/nvcc" ]] || fail "CUDA compiler is unavailable: $CUDA_HOME/bin/nvcc"
 [[ "$(cmake --version | awk 'NR == 1 { print $3 }')" == "3.22.1" ]] || fail "CMake must be 3.22.1"
 [[ "$(g++ -dumpfullversion -dumpversion)" == 11.4* ]] || fail "g++ must be 11.4.x"
@@ -47,8 +51,13 @@ for path in \
     "$MAYA_ROOT/build/lowlevel-interface/liblowlevel_interface_runtime.so" \
     "$MAYA_ROOT/CppEvent/libcpp_event_runtime_shared.so" \
     "$MAYA_ROOT/CppEvent/libcpp_event_tls_shared.so" \
+    "$ROOT/large-cluster/e2/figure5-source.json" \
     "$ROOT/large-cluster/e2/estimator.json"; do
     [[ -e "$path" ]] || fail "setup output is missing: $path"
+done
+for scale in 32 64 128; do
+    [[ -d "$FIGURE5_INPUT_ROOT/gpt-$scale" ]] \
+        || fail "Figure 5 trace is unavailable: $FIGURE5_INPUT_ROOT/gpt-$scale"
 done
 [[ -x "$MAYA_ROOT/fake-cuda/frun" ]] || fail "FakeCUDA launcher is not executable"
 "$PROOT_BIN" /bin/true >/dev/null || fail "PRoot execution probe failed"

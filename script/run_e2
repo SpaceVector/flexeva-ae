@@ -3,27 +3,42 @@ set -euo pipefail
 
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 MODE="${1:-all}"
+FIGURE5_MODE="${2:-${FIGURE5_MODE:-trace}}"
 
-[[ "$MODE" != figure5 && "$MODE" != all ]] || source "$ROOT/script/lib/ae_env.sh"
+[[ $# -le 2 ]] || { echo "usage: script/run_e2 [all|table4|figure5] [trace|native]" >&2; exit 2; }
+if [[ $# -eq 2 && "$MODE" != all && "$MODE" != figure5 ]]; then
+    echo "usage: script/run_e2 [all|table4|figure5] [trace|native]" >&2
+    exit 2
+fi
+if [[ "$MODE" == all || "$MODE" == figure5 ]]; then
+    [[ "$FIGURE5_MODE" == trace || "$FIGURE5_MODE" == native ]] || {
+        echo "run_e2: Figure 5 mode must be trace or native" >&2
+        exit 2
+    }
+fi
+if [[ "$MODE" == figure5 && "$FIGURE5_MODE" == native ]]; then
+    source "$ROOT/script/lib/ae_env.sh"
+fi
 if [[ "$MODE" == all ]]; then
     E2_RUN_ID="${E2_RUN_ID:-e2-$(date -u +%Y%m%d-%H%M%S)}"
     export TABLE4_RUN_ID="${TABLE4_RUN_ID:-$E2_RUN_ID-table4}"
     export FIGURE5_RUN_ID="${FIGURE5_RUN_ID:-$E2_RUN_ID-figure5}"
 fi
 
-[[ $# -le 1 ]] || { echo "usage: script/run_e2 [all|table4|figure5]" >&2; exit 2; }
 case "$MODE" in
     all)
         "$ROOT/script/run_e2" table4
-        exec "$ROOT/script/run_e2" figure5
+        exec "$ROOT/script/run_e2" figure5 "$FIGURE5_MODE"
         ;;
     figure5)
+        export FIGURE5_MODE
+        export FIGURE5_RUN_ID="${FIGURE5_RUN_ID:-e2-$(date -u +%Y%m%d-%H%M%S)-figure5}"
         exec bash "$ROOT/script/e2/run_figure5.sh"
         ;;
     table4)
         ;;
     *)
-        echo "usage: script/run_e2 [all|table4|figure5]" >&2
+        echo "usage: script/run_e2 [all|table4|figure5] [trace|native]" >&2
         exit 2
         ;;
 esac

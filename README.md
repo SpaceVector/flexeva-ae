@@ -101,6 +101,16 @@ measurements, followed by table construction and plotting. Distributed entries
 start and wait for the peer automatically; do not start a matching command
 there.
 
+Figure 5 uses the deterministic trace-based route by default. To run its
+current-server 8/16-GPU variant instead, use:
+
+```bash
+FIGURE5_MODE=native script/run_all
+```
+
+The native variant is a separate current-environment result and is not mixed
+with the supplied 32/64/128-GPU trace points.
+
 The workflow stops at the first failure. Success ends with:
 
 ```text
@@ -116,19 +126,23 @@ The supplied large-scale inputs are:
 
 - E1: five 128-GPU raw trace sets and one historical trajectory ledger whose
   rows carry the original benchmark, patch, and log SHA-256 fingerprints;
-- E2: the 32-, 64-, and 128-GPU traces used by Figure 5.
+- E2: the 32-, 64-, and 128-GPU traces plus the source measurements used for
+  Figure 5's limited trace-based reproduction.
 
 E1 cannot run its original 16-node job on the reviewer server. It validates
 the raw trace coverage, Time direction, and A2A trajectory before reconstructing
 Figure 1 from the fingerprinted ledger. It does not use FakeCUDA or the current
-16 GPUs to replace the original Drop/Reroute measurements. E2's 8- and 16-GPU
-traces and every E3--E5 measurement are generated during the current run.
+16 GPUs to replace the original Drop/Reroute measurements. E2 reconstructs the
+paper-facing Figure 5 by default; its optional native mode generates only the
+current 8/16-GPU results. Every E3--E5 measurement is generated during the
+current run.
 
 Generated artifacts are written below:
 
 ```text
 result/e1/generated/<run-id>/
-result/e2/generated/{table4,figure5}/<run-id>/
+result/e2/generated/table4/<run-id>/
+result/e2/generated/figure5/<run-id>/{trace,native}/
 result/e3/generated/{figure6,figure7,figure8}/<run-id>/
 result/e4/generated/<run-id>/
 result/e5/generated/<run-id>/
