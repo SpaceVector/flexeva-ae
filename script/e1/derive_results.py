@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate a current E1 run and derive Figure 1(b/c) CSV files."""
+"""Validate the historical E1 ledger and derive Figure 1(b/c) CSV files."""
 
 from __future__ import annotations
 
@@ -9,6 +9,8 @@ import math
 from pathlib import Path
 
 
+ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_INPUT = ROOT / "large-cluster" / "e1" / "trajectory.csv"
 EXPECTED_STAGES = ("Base", "S1", "S2", "S3", "S4")
 METRICS = {
     "time": "step_time_s",
@@ -42,6 +44,8 @@ def validate(rows: list[dict[str, str]]) -> None:
         deleted = int(row["deleted_lines"])
         if int(row["total_changed_lines"]) != added + deleted:
             raise ValueError(f"E1 patch accounting differs at {stage}")
+        if Path(row["result_source_file"]).is_absolute():
+            raise ValueError(f"E1 result source must be relative at {stage}")
         for prefix, field in METRICS.items():
             value = float(row[field])
             base = float(baseline[field])
@@ -53,6 +57,14 @@ def validate(rows: list[dict[str, str]]) -> None:
                 raise ValueError(f"E1 {prefix} reduction differs at {stage}")
             if not close(normalized, float(row[f"{prefix}_normalized_improvement"])):
                 raise ValueError(f"E1 {prefix} normalization differs at {stage}")
+
+    if float(rows[2]["time_reduction_vs_baseline"]) >= 0.0:
+        raise ValueError("E1 must preserve the failed S2 round")
+    if f"{100.0 * float(rows[-1]['time_reduction_vs_baseline']):.2f}" != "61.30":
+        raise ValueError("E1 final time reduction must be 61.30%")
+    if f"{100.0 * float(rows[-1]['a2a_reduction_vs_baseline']):.2f}" != "95.03":
+        raise ValueError("E1 final A2A reduction must be 95.03%")
+
 
 def write_csv(path: Path, fieldnames: tuple[str, ...], rows: list[dict[str, object]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -94,14 +106,18 @@ def derive(rows: list[dict[str, str]], result_dir: Path) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--input", type=Path, required=True)
-    parser.add_argument("--result-dir", type=Path, required=True)
+    parser.add_argument("--input", type=Path, default=DEFAULT_INPUT)
+    parser.add_argument("--result-dir", type=Path)
+    parser.add_argument("--check-only", action="store_true")
     args = parser.parse_args()
 
     rows = load_rows(args.input)
     validate(rows)
-    derive(rows, args.result_dir)
-    print(f"E1 current-run data: PASS ({len(rows)} rows)")
+    if not args.check_only:
+        if args.result_dir is None:
+            parser.error("--result-dir is required unless --check-only is used")
+        derive(rows, args.result_dir)
+    print(f"E1 historical ledger: PASS ({len(rows)} rows)")
     return 0
 
 

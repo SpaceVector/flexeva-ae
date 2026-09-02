@@ -96,9 +96,10 @@ script/run_all
 
 `script/run_all` is a thin aggregate of the five experiment entry points:
 `script/run_e1`, `script/run_e2`, `script/run_e3`, `script/run_e4`, and
-`script/run_e5`. Each entry point performs its own measurements, validation,
-table construction, and plotting. Distributed entries start and wait for the
-peer automatically; do not start a matching command there.
+`script/run_e5`. Each entry point performs its required trace validation or
+measurements, followed by table construction and plotting. Distributed entries
+start and wait for the peer automatically; do not start a matching command
+there.
 
 The workflow stops at the first failure. Success ends with:
 
@@ -108,19 +109,20 @@ AE full reproduction: PASS (<run-id>)
 
 ## Input and output policy
 
-The repository contains no experiment-result CSV, JSON, or PDF files. They are
-created only by an actual run and are ignored by Git.
+Generated result tables and PDFs are not tracked. They are created by the
+experiment entry points and ignored by Git.
 
-The only supplied experiment data are raw traces for scales that cannot run on
-the two-node reviewer server:
+The supplied large-scale inputs are:
 
-- E1: the five 128-GPU rounds used by Figure 1;
-- E2: the 32-, 64-, and 128-GPU points used by Figure 5.
+- E1: five 128-GPU raw trace sets and one historical trajectory ledger whose
+  rows carry the original benchmark, patch, and log SHA-256 fingerprints;
+- E2: the 32-, 64-, and 128-GPU traces used by Figure 5.
 
-E2's 8- and 16-GPU traces and every E3--E5 measurement are generated during
-the current run. E1 also runs the five workload snapshots under logical-rank
-emulation to obtain routing metrics; the supplied trace is used only for the
-128-GPU timing and communication measurements.
+E1 cannot run its original 16-node job on the reviewer server. It validates
+the raw trace coverage, Time direction, and A2A trajectory before reconstructing
+Figure 1 from the fingerprinted ledger. It does not use FakeCUDA or the current
+16 GPUs to replace the original Drop/Reroute measurements. E2's 8- and 16-GPU
+traces and every E3--E5 measurement are generated during the current run.
 
 Generated artifacts are written below:
 

@@ -3,78 +3,33 @@ set -euo pipefail
 
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 PYTHON_BIN="${PYTHON_BIN:-$ROOT/.venv/bin/python}"
-MAYA_ROOT="${MAYA_ROOT:-$ROOT/FlexEva/backends/maya}"
-PROOT_BIN="${PROOT_BIN:-$ROOT/.deps/proot-5.3.1/bin/proot}"
-REAL_TRACE_ROOT="${E1_TRACE_ROOT:-$ROOT/large-cluster/e1/historical_sparse_moe}"
+TRACE_ROOT="${E1_TRACE_ROOT:-$ROOT/large-cluster/e1/historical_sparse_moe}"
+LEDGER="${E1_LEDGER:-$ROOT/large-cluster/e1/trajectory.csv}"
+LEDGER_SHA256="4a5a967f765731540fd0bc5fa383dcc85e6ff79443b696361ae985e95375345d"
 RUN_ID="${E1_RUN_ID:-${RUN_ALL_ID:-e1-$(date -u +%Y%m%d-%H%M%S)}}"
 RESULT_ROOT="${E1_RESULT_ROOT:-$ROOT/result/e1/generated/$RUN_ID}"
-ROUTING_TRACE_ROOT="${E1_ROUTING_TRACE_ROOT:-$ROOT/trace/e1/$RUN_ID/logical-routing}"
-WORKLOAD_ROOT="$ROOT/script/e1/workload"
+MODE="${1:-trace}"
 
-[[ $# == 0 ]] || { echo "usage: script/run_e1" >&2; exit 2; }
+[[ $# -le 1 && "$MODE" == trace ]] || { echo "usage: script/run_e1 [trace]" >&2; exit 2; }
 if [[ "$PYTHON_BIN" != */* ]]; then
     PYTHON_BIN="$(command -v "$PYTHON_BIN" || true)"
 fi
 [[ -n "$PYTHON_BIN" ]] || { echo "run_e1: Python is unavailable" >&2; exit 2; }
 PYTHON_BIN="$(cd -- "$(dirname -- "$PYTHON_BIN")" && pwd -P)/$(basename -- "$PYTHON_BIN")"
-test -x "$MAYA_ROOT/fake-cuda/frun" || { echo "run_e1: run script/setup first" >&2; exit 2; }
-test -x "$PROOT_BIN" || { echo "run_e1: missing PRoot: $PROOT_BIN" >&2; exit 2; }
-[[ ! -e "$RESULT_ROOT" && ! -e "$ROUTING_TRACE_ROOT" ]] || {
+test -f "$LEDGER" || { echo "run_e1: missing historical ledger: $LEDGER" >&2; exit 2; }
+read -r ledger_sha256 _ < <(sha256sum "$LEDGER")
+[[ "$ledger_sha256" == "$LEDGER_SHA256" ]] || { echo "run_e1: historical ledger checksum differs" >&2; exit 2; }
+[[ ! -e "$RESULT_ROOT" ]] || {
     echo "run_e1: output already exists; use a new E1_RUN_ID" >&2
     exit 2
 }
 
-mkdir -p "$RESULT_ROOT" "$ROUTING_TRACE_ROOT"
+mkdir -p "$RESULT_ROOT"
 "$PYTHON_BIN" "$ROOT/script/e1/validate_traces.py" \
-    --trace-root "$REAL_TRACE_ROOT" --output "$RESULT_ROOT/trace_metrics.csv"
-
-rounds=(
-    round_00_baseline
-    round_01_packed_variable_dispatch
-    round_02_top1_confident_fallback
-    round_03_sdpa_attention_recovery
-    round_04_switch_top1_routing
-)
-for round_name in "${rounds[@]}"; do
-    workload="$WORKLOAD_ROOT/$round_name/tests/workloads/historical_sparse_moe"
-    output="$RESULT_ROOT/$round_name/benchmark_result.json"
-    capture="$ROUTING_TRACE_ROOT/$round_name"
-    mkdir -p "$(dirname -- "$output")"
-    echo "E1 routing metrics: $round_name"
-    env \
-        "PYTHONPATH=$MAYA_ROOT:$MAYA_ROOT/python${PYTHONPATH:+:$PYTHONPATH}" \
-        "FAKECUDA_PROOT_BIN=$PROOT_BIN" \
-        "FAKECUDA_TARGET_ENV_ROOT=${FAKECUDA_TARGET_ENV_ROOT:-$(cd -- "$(dirname -- "$PYTHON_BIN")/.." && pwd)}" \
-        FLEXSIM_MAYA_SAFE_ROUTING=1 \
-        FLEXSIM_MAYA_SAFE_TOPK=1 \
-        "$PYTHON_BIN" "$MAYA_ROOT/python/flexsim/maya_lite/capture_emulated.py" \
-            --output-dir "$capture" \
-            --logical-world-size 128 \
-            --auto-profiled-strategy single \
-            --frun "$MAYA_ROOT/fake-cuda/frun" \
-            --python-bin "$PYTHON_BIN" \
-            --local-device-span 8 \
-            --max-concurrent-workers 1 \
-            --collective-mode compat \
-            --trace-surface semantic \
-            --host-timing-mode none \
-            --trim-to-step-window \
-            --capture-step-window-step 2 \
-            "$workload/train.py" -- \
-            --config "$workload/configs/gshard_style_fastloop.json" \
-            --train-iters 2 \
-            --benchmark-warmup-steps 1 \
-            --benchmark-measure-steps 1 \
-            --output-json "$output" \
-            >"$RESULT_ROOT/$round_name/capture.stdout.txt" \
-            2>"$RESULT_ROOT/$round_name/capture.stderr.txt"
-done
-
-"$PYTHON_BIN" "$ROOT/script/e1/collect_results.py" \
-    --trace-metrics "$RESULT_ROOT/trace_metrics.csv" \
-    --routing-root "$RESULT_ROOT" \
-    --workload-root "$WORKLOAD_ROOT" \
-    --output "$RESULT_ROOT/trajectory.csv"
+    --trace-root "$TRACE_ROOT" \
+    --ledger "$LEDGER" \
+    --output "$RESULT_ROOT/trace_validation.csv"
+cp -- "$LEDGER" "$RESULT_ROOT/trajectory.csv"
 "$PYTHON_BIN" "$ROOT/script/e1/derive_results.py" \
     --input "$RESULT_ROOT/trajectory.csv" --result-dir "$RESULT_ROOT"
 "$PYTHON_BIN" "$ROOT/script/e1/plot_figure1.py" --result-dir "$RESULT_ROOT"

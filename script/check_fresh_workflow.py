@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Reject workflows that can consume repository-shipped experiment results."""
+"""Reject workflows that consume generated results as experiment inputs."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+ALLOWED_CSV_INPUTS = {"large-cluster/e1/trajectory.csv"}
 
 
 def tracked_result_files() -> list[str]:
@@ -33,7 +34,9 @@ def reject(path: str, fragments: tuple[str, ...]) -> list[str]:
 
 def main() -> int:
     errors = [f"tracked experiment output: {path}" for path in tracked_result_files()]
-    errors.extend(f"tracked CSV: {path}" for path in tracked_csv_files())
+    errors.extend(f"tracked CSV: {path}" for path in tracked_csv_files() if path not in ALLOWED_CSV_INPUTS)
+    if not (ROOT / "large-cluster/e1/trajectory.csv").is_file():
+        errors.append("missing historical E1 ledger")
     errors.extend(
         reject(
             "script/run_all",
@@ -50,7 +53,13 @@ def main() -> int:
     errors.extend(
         reject(
             "script/e1/derive_results.py",
-            ('ROOT / "result" / "e1" / "trajectory.csv"', "--check-only"),
+            ('ROOT / "result" / "e1" / "trajectory.csv"',),
+        )
+    )
+    errors.extend(
+        reject(
+            "script/run_e1",
+            ("capture_emulated.py", "FLEXSIM_MAYA_SAFE_ROUTING", "E1_ROUTING_TRACE_ROOT"),
         )
     )
     errors.extend(
