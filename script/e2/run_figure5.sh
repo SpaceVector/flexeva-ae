@@ -92,7 +92,7 @@ env PYTHONPATH="$MAYA_PATH" LD_LIBRARY_PATH="$REAL_LIBRARY_PATH" \
         exit 2
     }
 PYTHONPATH="$MAYA_PATH" "$PYTHON_BIN" -c \
-    'from flexsim.estimator import Estimator; import sys; estimator=Estimator.load(sys.argv[1]); assert estimator.has_prediction_signal(); assert "gpu_estimator_xgboost" in estimator.provider_names()' \
+    'from flexsim.estimator import Estimator; import sys; estimator=Estimator.load(sys.argv[1]); assert estimator.is_calibrated(); assert "gpu_estimator_xgboost" in estimator.provider_names()' \
     "$ESTIMATOR_MODEL" || {
         echo "figure5: estimator or bundled XGBoost provider is unavailable" >&2
         exit 2
