@@ -60,6 +60,7 @@ acquire_run_lock() {
     fi
     {
         printf 'run_id=%s\n' "$run_id"
+        printf 'run_dir=%s\n' "$run_dir"
         printf 'pid=%s\n' "$$"
         printf 'hostname=%s\n' "$(hostname)"
         printf 'acquired_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -374,6 +375,8 @@ case "$action" in
         shift
         (( $# > 0 )) || { echo "missing experiment command" >&2; exit 2; }
         command_args=("$@")
+        [[ $run_id =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] \
+            || { echo "invalid RUN_ID: $run_id" >&2; exit 2; }
 
         base_check "$expected_hostname" "$node_root" "$canonical_python"
         node_root_real=$(realpath -e "$node_root") || blocked "cannot resolve NODE_ROOT"
@@ -383,14 +386,18 @@ case "$action" in
             *) blocked "workdir escapes NODE_ROOT: $workdir" ;;
         esac
 
-        run_root="$node_root_real/eurosys27-ae/runs"
+        run_root="$workdir/result/server-runs"
         mkdir -p "$run_root" || blocked "cannot create GPFS run root: $run_root"
-        run_dir="$run_root/$run_id"
-        [[ ! -e $run_dir ]] || blocked "run directory already exists: $run_dir"
-        mkdir "$run_dir" || blocked "cannot create run directory: $run_dir"
-        mkdir "$run_dir/raw" "$run_dir/results" "$run_dir/traces" "$run_dir/profiler" "$run_dir/cache"
+        candidate_run_dir="$run_root/$run_id"
+        # Only write status after this process has created its own directory.
+        mkdir -- "$candidate_run_dir" \
+            || blocked "cannot create run directory (must be new): $candidate_run_dir"
+        run_dir="$candidate_run_dir"
+        mkdir "$run_dir/raw" "$run_dir/results" "$run_dir/traces" "$run_dir/profiler" "$run_dir/cache" \
+            || blocked "cannot initialize run directory: $run_dir"
 
-        acquire_run_lock "$node_root_real/eurosys27-ae/.locks" "$run_id"
+        # All checkouts under the same reviewer account share the node's GPUs.
+        acquire_run_lock "$HOME/eurosys27-ae/.locks" "$run_id"
 
         check_gpfs_write "$canonical_python" \
             || blocked "GPFS write/fsync probe failed; check quota and fileset state"

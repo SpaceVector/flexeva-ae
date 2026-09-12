@@ -60,6 +60,26 @@ git pull --ff-only
 
 GitHub and Gitee publish the same `main` commit.
 
+### Multiple reviewers sharing one account
+
+Use a separate fresh checkout for each reviewer, for example
+`~/reviewer-a/flexeva-ae` and `~/reviewer-b/flexeva-ae`. Run `script/setup` in
+each checkout; do not copy another checkout's `.deps/` or `.venv/`.
+Setup uses the same home-relative checkout path on the peer, so these two
+checkouts also use separate directories on node 1. Explicit or previously
+saved `FLEXMAYA_PEER_REPO_ROOT` settings are preserved. For a checkout outside
+the home directory, set this variable to a dedicated absolute peer path before
+setup.
+
+Guarded runs store their logs, caches, and status in that checkout's
+`result/server-runs/<run-id>/`. Reusing an ID in the same checkout is rejected
+without modifying the existing run; the same ID in different checkouts does
+not share results. Existing data under `~/eurosys27-ae/runs/` is left untouched.
+The GPU lock remains shared at `~/eurosys27-ae/.locks/gpu-run.lock`; do not
+delete it to bypass a busy run. Coordinate setup and experiment time slots:
+separate directories do not provide separate GPUs, ports, or CPU resources,
+and not every experiment entry point uses the GPU guard.
+
 ## 1. Prepare both nodes
 
 Run setup once on the coordinator:
@@ -147,12 +167,13 @@ result/e2/generated/figure5/<run-id>/
 result/e3/generated/{figure6,figure7,figure8}/<run-id>/
 result/e4/generated/<run-id>/
 result/e5/generated/<run-id>/
+result/server-runs/<run-id>/
 trace/
 plot/
 ```
 
-E5's full capture stays in the server run directory because it is large; its
-final Table 8 and speedup tables are copied to the result directory above.
+E5's full capture stays in `result/server-runs/<run-id>/` because it is large;
+its final Table 8 and speedup tables are copied to `result/e5/generated/`.
 
 The supplied trace links under `large-cluster/` target mounts on the evaluation
 server and may be broken in another clone. Equivalent mounts can be selected

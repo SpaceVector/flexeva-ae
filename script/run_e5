@@ -37,7 +37,7 @@ DEST="${E5_EXPORT_ROOT:-$ROOT/result/e5/generated/$RUN_ID}"
 AE_CANONICAL_PYTHON="$PYTHON_BIN" \
     "$ROOT/script/e3/server.sh" run "$RUN_ID" 8 -- "$ROOT/script/run_e5" run
 
-SOURCE="$(realpath -e "$AE_NODE_ROOT")/eurosys27-ae/runs/$RUN_ID/results/e5-paper-aligned"
+SOURCE="$ROOT/result/server-runs/$RUN_ID/results/e5-paper-aligned"
 [[ -d "$SOURCE" ]] || { echo "run_e5: guarded result is missing: $SOURCE" >&2; exit 1; }
 mkdir -p "$DEST/measurement" "$DEST/speed"
 for relative in \

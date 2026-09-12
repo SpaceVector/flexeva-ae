@@ -29,11 +29,8 @@ valid_run_id() {
 }
 
 show_status() {
-    local run_id=$1 node_root_real run_root run_dir
-    node_root_real=$(realpath -e "$node_root") \
-        || { echo "cannot resolve NODE_ROOT: $node_root" >&2; return 2; }
-    run_root="$node_root_real/eurosys27-ae/runs"
-    run_dir="$run_root/$run_id"
+    local run_id=$1 run_dir
+    run_dir="$artifact_root/result/server-runs/$run_id"
     [[ -f $run_dir/status.env ]] \
         || { echo "run status does not exist: $run_dir/status.env" >&2; return 2; }
     echo "run_id=$run_id"
