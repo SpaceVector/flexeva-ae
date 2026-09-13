@@ -143,6 +143,28 @@ The workflow stops at the first failure. Success ends with:
 AE full reproduction: PASS (<run-id>)
 ```
 
+### Resource usage
+
+Approximate planning budgets for the default workflow on the provided reviewer
+server, based on existing runs and the execution pipeline with headroom, are:
+
+| Entry point | Approximate host RAM per node | Approximate output storage |
+| --- | ---: | ---: |
+| `script/run_e1` | about 2 GiB | less than 1 GiB |
+| `script/run_e2` | about 64 GiB | about 20 GiB |
+| `script/run_e3` | about 64 GiB | about 130 GiB |
+| `script/run_e4` | about 32 GiB | about 20 GiB |
+| `script/run_e5` | about 32 GiB | about 20 GiB |
+| `script/run_all` | about 64 GiB | about 200 GiB |
+
+RAM budgets apply to each active node. Output storage is the combined total
+with raw traces retained on both nodes. Since `run_all` executes experiments
+sequentially, its RAM budget follows the largest stage while storage accumulates.
+
+The Python environment uses about 7 GiB per node, and about 471 GiB of
+supplied traces are already mounted on shared storage. Installation,
+supplied inputs, and build/download caches are excluded from the table.
+
 ## Input and output policy
 
 Generated result tables and PDFs are not tracked. They are created by the
@@ -185,13 +207,17 @@ export E1_TRACE_ROOT=/path/to/historical_sparse_moe
 
 ## Environment requirements
 
-The setup check verifies the following reviewer-server requirements:
+The supplied two-node server provides 64 physical CPU cores (128 hardware
+threads) and approximately 1.8 TiB of RAM per node. Both nodes share GPFS
+storage and communicate through SSH and sockets.
 
-- Linux x86-64 on the configured shared filesystem;
-- two nodes, each with eight NVIDIA A100-SXM4-80GB GPUs and full NV12 topology;
+The setup check verifies:
+
+- Linux x86-64;
+- eight NVIDIA A100-SXM4-80GB GPUs per node with full NV12 topology;
 - PyTorch 2.8.0+cu128 and CUDA toolkit 12.8;
 - g++ 11.4.x, CMake 3.22.1, `git`, `make`, `protoc`, `mpicxx`, and `ssh`;
-- sufficient shared storage for raw trace capture.
+- free space on the shared filesystem.
 
 Useful setup overrides are:
 
@@ -205,9 +231,22 @@ export MIN_GPFS_FREE_GIB=20
 
 | Path | Contents |
 | --- | --- |
-| [`FlexEva/`](FlexEva/README.md) | FlexEva core, Maya-style evaluator, FakeCUDA, and tests |
-| `script/` | Setup and E1--E5 experiment entry points |
-| `large-cluster/` | Links to the supplied large-scale raw traces |
-| `result/` | Created result tables and measurement summaries |
-| `trace/` | Created raw traces from runnable scales |
-| `plot/` | Created paper figures |
+| [`FlexEva/`](FlexEva/README.md) | Implements incremental evaluation, including the Maya backend, FakeCUDA capture, trace replay, and tests. |
+| `script/` | Provides environment setup, E1--E5 experiment drivers, result validation, and plotting; implementations are grouped under `script/eN/`. |
+| `large-cluster/` | Supplies the historical traces, trajectory ledger, and source measurements used by E1 and the default Figure 5 reconstruction. |
+| `result/` | Stores generated result tables, measurement summaries, and validation records; `result/server-runs/` also holds guarded-run logs, caches, and E5 captures. |
+| `trace/` | Stores newly captured raw traces used to construct and validate experiment results. |
+| `plot/` | Stores the paper figures generated from the result tables by the plotting scripts. |
+
+## Citation
+
+If you use FlexEva in your research, please cite our paper:
+
+```bibtex
+@unpublished{flexeva2027eurosys,
+  title  = {{Lightweight Evaluation for Agentic ML Workload Optimization with Resilient Anchor State}},
+  author = {Yan, Muxi and Wu, Yinjie and Tang, Bo and Wang, Xiaoting},
+  year   = {2027},
+  note   = {Submitted to EuroSys 2027}
+}
+```
