@@ -20,6 +20,7 @@ if str(FLEXEVA_RAS_SRC) not in sys.path:
     sys.path.insert(0, str(FLEXEVA_RAS_SRC))
 
 import flexmaya_ras as fm
+from anchor_pipeline import check_case, optimizer_start, run_pipeline
 
 from trace_metrics import (
     cosine,
@@ -186,6 +187,7 @@ def run_routed_moe_path(
             else case_dir / "traces"
         )
     )
+    trace_dir = getattr(args, "capture_trace_dir", trace_dir)
     if args.reuse_existing_traces:
         missing = []
         for rank in range(config.world_size):
@@ -222,6 +224,8 @@ def run_routed_moe_path(
             Path(__file__).resolve().parents[1] / "workload" / "routed_moe" / "moe_topk.py",
         )
     ).resolve()
+    workload_parent = workload.parent
+    workload = getattr(args, "workload_source", workload)
     if not workload.is_file():
         raise FileNotFoundError(f"Routed-MoE workload does not exist: {workload}")
     frun = args.maya_root / "fake-cuda" / "frun"
@@ -233,9 +237,11 @@ def run_routed_moe_path(
     env["FLEXMAYA_TRACE_DIR"] = str(trace_dir)
     env["FLEXMAYA_LOCAL_DEVICE_COUNT"] = str(args.local_device_count)
     env["ROUTED_MOE_SCRIPT"] = str(workload)
+    if getattr(args, "table4_phase", None):
+        env["FLEXMAYA_TABLE4_PHASE"] = args.table4_phase
     env["PYTHONPATH"] = os.pathsep.join(
         [
-            str(workload.parent),
+            str(workload_parent),
             str(args.maya_root / "python"),
             str(args.maya_root / "CppEvent"),
             str(Path(__file__).resolve().parent),
@@ -395,9 +401,11 @@ def parse_case_raw_events(
     for rank in range(config.world_size):
         markers_path = trace_dir / f"rank_{rank}_markers.jsonl"
         start_ts, end_ts = load_step_window(markers_path)
+        selected_start = optimizer_start(markers_path)
         file_hashes[markers_path.name] = hashlib.sha256(markers_path.read_bytes()).hexdigest()
         trace_path = trace_dir / f"rank_{rank}.jsonl"
         digest = hashlib.sha256()
+        host_threads = set()
         with trace_path.open("r", encoding="utf-8") as handle:
             for line in handle:
                 digest.update(line.encode("utf-8"))
@@ -413,9 +421,16 @@ def parse_case_raw_events(
                 if kind in {"marker", "other"}:
                     continue
                 modeled_api_counts[api] += 1
-                rows.append(raw_event_from_record(record, config=config, rank=rank, event_id=next_id))
+                host_threads.add(int(record.get("tid") or 0))
+                event = raw_event_from_record(record, config=config, rank=rank, event_id=next_id)
+                event.thread_id = rank + 1
+                if ts >= selected_start:
+                    event.code_partition += "_optimizer_step"
+                rows.append(event)
                 next_id += 1
         file_hashes[trace_path.name] = digest.hexdigest()
+        if len(host_threads) > 1:
+            raise ValueError(f"rank {rank}: optimizer-tail refresh requires one host thread")
     if hook_audit is not None:
         combined = hashlib.sha256()
         for name, digest in sorted(file_hashes.items()):
@@ -493,32 +508,25 @@ def summarize_peer_events(raw_events: list[object]) -> dict[str, object]:
 def compare_path(args: argparse.Namespace, config: RoutedMoeConfig, *, route_case: RouteCase) -> dict[str, object]:
     seed = args.seed_base + route_case.path_id
     case_name = route_case.name
-    case_dir = args.out_dir / case_name
-    case_dir.mkdir(parents=True, exist_ok=True)
-    run = run_routed_moe_path(args, config, route_case=route_case, seed=seed, case_dir=case_dir)
-    if run["return_code"] != 0:
-        return {"case": case_name, "config": asdict(config), "run": run, "error": "moe_topk.py failed"}
-
-    parse_start = time.perf_counter()
-    hook_audit: dict[str, object] = {}
-    raw_events = parse_case_raw_events(config, Path(run["trace_dir"]), hook_audit)
-    parse_s = time.perf_counter() - parse_start
+    pipeline_start = time.perf_counter()
+    run, raw_events, flexeva_trace, flexeva_feedback, pipeline, hook_audit = run_pipeline(
+        args, case_name,
+        Path(os.environ.get("FLEXMAYA_ROUTED_MOE_SCRIPT", ROOT / "script/e2/workload/routed_moe/moe_topk.py")),
+        config.world_size, singleton_rank_groups(config.world_size),
+        lambda options, output: run_routed_moe_path(
+            options, config, route_case=route_case, seed=seed, case_dir=output),
+        lambda directory, audit: parse_case_raw_events(config, directory, audit),
+        context={"config": asdict(config), "route": asdict(route_case), "seed": seed},
+        projection_policies=(MAYA_COMPATIBILITY_ONLY_APIS, REPORTED_AUXILIARY_APIS),
+    )
+    pipeline_s = time.perf_counter() - pipeline_start
     peer_summary = summarize_peer_events(raw_events)
-
     maya_start = time.perf_counter()
     maya_trace = fm.build_trace_ras(raw_events)
     maya_build_s = time.perf_counter() - maya_start
-
-    flex_start = time.perf_counter()
-    flexeva_trace = fm.build_rank_grouped_trace_ras(raw_events, singleton_rank_groups(config.world_size))
-    flexeva_build_s = time.perf_counter() - flex_start
-
     maya_replay_start = time.perf_counter()
     maya_feedback = fm.replay_trace_once(maya_trace)
     maya_replay_s = time.perf_counter() - maya_replay_start
-    flexeva_replay_start = time.perf_counter()
-    flexeva_feedback = fm.replay_trace_once(flexeva_trace)
-    flexeva_replay_s = time.perf_counter() - flexeva_replay_start
 
     maya_weighted = weighted_event_counter(maya_trace, use_dedup_weight=True)
     flexeva_weighted = weighted_event_counter(flexeva_trace, use_dedup_weight=True)
@@ -584,14 +592,13 @@ def compare_path(args: argparse.Namespace, config: RoutedMoeConfig, *, route_cas
             "feedback": flexeva_feedback.to_dict(),
             "logical_kind_counts": summarize_kind_counts(flexeva_trace, use_dedup_weight=True),
             "rank_groups": rank_groups,
-            "trace_build_s": flexeva_build_s,
-            "replay_s": flexeva_replay_s,
         },
-        "phases_s": {"jsonl_parse_s": parse_s},
+        "phases_s": {"anchor_pipeline_s": pipeline_s},
+        "anchor_pipeline": pipeline,
         "peer_events": peer_summary,
         "raw_input_contract": {
-            "comparison": "one shared fake-CUDA hook capture is transformed by both builders",
-            "paired_raw_streams": False,
+            "comparison": "anchor plus selected capture versus independent full candidate capture",
+            "paired_raw_streams": True,
             "raw_stream_equality_claimed": False,
             "hook_capture": hook_audit,
         },
@@ -604,6 +611,7 @@ def compare_path(args: argparse.Namespace, config: RoutedMoeConfig, *, route_cas
             raw_events,
             rank_groups,
             excluded_apis=REPORTED_AUXILIARY_APIS,
+            candidate_trace=flexeva_trace,
         ),
         "feedback_signal": feedback_signal_report(maya_feedback, flexeva_feedback),
         "bundled_maya_visibility_projection": projected_feedback_report(
@@ -647,19 +655,22 @@ def main() -> int:
     route_cases = ROUTE_CASES[: args.path_count]
     results = []
     for route_case in route_cases:
-        results.append(compare_path(args, config, route_case=route_case))
+        row = compare_path(args, config, route_case=route_case)
+        results.append(row)
         (args.out_dir / "partial-results.json").write_text(
             json.dumps({"results": results}, indent=2) + "\n",
             encoding="utf-8",
         )
+        check_case(row)
+        print(f"Table 4 {route_case.name}: PASS", flush=True)
     result = {
         "created_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
         "method": {
             "capture": "workload/routed_moe/moe_topk.py through fake-CUDA frun",
             "window": "training_step markers from FLEXSIM_MAYA_MARKERS_PATH",
             "maya": "Maya-style full trace-RAS with build_trace_ras",
-            "flexeva": "FlexEva trace-RAS ablation with routed-MoE singleton expert-rank active lanes",
-            "scope": "trace-RAS transformation over one shared hook capture; not source-RAS selective refresh",
+            "flexeva": "anchor graph/replay frontier reuse and optimizer-suffix continuation",
+            "scope": "per-configuration optimizer mutation; capture-time selection; independent full reference",
             "path_variation": (
                 "explicit forced top-2 expert rank pairs plus sparse P2P route probes; "
                 "event signatures include rank and peer_rank"

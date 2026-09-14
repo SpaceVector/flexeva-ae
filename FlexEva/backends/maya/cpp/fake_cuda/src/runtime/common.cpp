@@ -244,6 +244,31 @@ API cudaError_t cudaThreadExchangeStreamCaptureMode(enum cudaStreamCaptureMode *
 }
 REGISTER_CUDA_FUNCTION(cudaThreadExchangeStreamCaptureMode);
 
+API const char* fakecudaTraceCheckpoint() {
+    // Logical handles used by trace-RAS, without process-specific pointers.
+    static thread_local std::string result;
+    std::scoped_lock lock(g_streamMutex, g_eventMutex);
+    std::vector<std::string> streams, events;
+    for (const auto* stream : g_validStreams) {
+        streams.push_back(std::to_string(stream->id) + ":" +
+                          std::to_string(stream->flags) + ":" +
+                          std::to_string(stream->priority));
+    }
+    for (const auto* event : g_validEvents) {
+        events.push_back(std::to_string(event->id) + ":" +
+                         std::to_string(event->flags) + ":" +
+                         std::to_string(event->last_stream_id) + ":" +
+                         std::to_string(event->recorded));
+    }
+    std::sort(streams.begin(), streams.end());
+    std::sort(events.begin(), events.end());
+    result = std::to_string(g_streamIdCounter.load()) + "/" +
+             std::to_string(g_eventIdCounter.load());
+    for (const auto& stream : streams) result += "|s:" + stream;
+    for (const auto& event : events) result += "|e:" + event;
+    return result.c_str();
+}
+
 API long long fakecudaTraceMarker(const char* kind, const char* label, long long step){
     if (kind != nullptr && strcmp(kind, "step_begin") == 0) {
         setenv("FLEXMAYA_TRACE_MODEL_WINDOW", "1", 1);
@@ -258,7 +283,7 @@ API long long fakecudaTraceMarker(const char* kind, const char* label, long long
         setenv("FLEXMAYA_CODE_PARTITION", partition.c_str(), 1);
     }
     LOG_DEBUG(CUDART, "mayaStepMarker() called.");
-    TracePayloadBuilder payload;
+    TracePayloadBuilder payload(true);
     payload.add_string("kind", kind ? kind : "");
     payload.add_string("label", label ? label : "");
     if (step >= 0) {

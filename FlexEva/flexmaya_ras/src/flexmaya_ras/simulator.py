@@ -9,7 +9,8 @@ the full logical collective without expanding every rank event.
 
 from __future__ import annotations
 
-from collections import Counter, defaultdict, deque
+from collections import ChainMap, Counter, defaultdict, deque
+from copy import copy
 from dataclasses import dataclass
 import math
 import time
@@ -89,6 +90,8 @@ class ReplayReport:
     simulator_overhead_us: float
     cycle_detected: bool
     pending_summary: dict[str, object] | None = None
+    replayed_events: int = 0
+    reused_events: int = 0
 
     def to_dict(self) -> dict[str, object]:
         data = {
@@ -104,6 +107,8 @@ class ReplayReport:
             "prediction_overhead_us": self.prediction_overhead_us,
             "simulator_overhead_us": self.simulator_overhead_us,
             "cycle_detected": self.cycle_detected,
+            "replayed_events": self.replayed_events,
+            "reused_events": self.reused_events,
         }
         if self.pending_summary is not None:
             data["pending_summary"] = self.pending_summary
@@ -135,23 +140,54 @@ def _duration_us(
     return 2.0 if bool(getattr(event, "blocking", False)) else 1.0
 
 
-def replay_trace_once(
+@dataclass(frozen=True)
+class ReplayCheckpoint:
+    report: ReplayReport
+    finish_time: object
+    lane_time: dict[int, float]
+    predictor: ReplayRandomForestPredictor
+    use_duration_hints: bool
+    zero_duration_apis: frozenset[str]
+
+
+def replay_trace_segment(
     trace: object,
     *,
+    checkpoint: ReplayCheckpoint | None = None,
     predictor: ReplayRandomForestPredictor | None = None,
     use_duration_hints: bool = True,
     zero_duration_apis: frozenset[str] = frozenset(),
-) -> ReplayReport:
+) -> ReplayCheckpoint:
     started = time.perf_counter()
+    if checkpoint is not None:
+        if checkpoint.report.cycle_detected:
+            raise ValueError("cannot resume an incomplete prefix")
+        if (use_duration_hints != checkpoint.use_duration_hints
+                or zero_duration_apis != checkpoint.zero_duration_apis
+                or (predictor is not None and predictor is not checkpoint.predictor)):
+            raise ValueError("replay cost policy changed after the checkpoint")
+        predictor = copy(checkpoint.predictor)
+        predictor._cache = ChainMap({}, checkpoint.predictor._cache)
     predictor = predictor or ReplayRandomForestPredictor()
+    initial_calls = predictor.calls
     events = list(trace.events)
     event_by_id = {int(event.id): event for event in events}
+    prior_finish = checkpoint.finish_time if checkpoint else {}
+    if checkpoint and any(event_id in prior_finish for event_id in event_by_id):
+        raise ValueError("suffix includes an already replayed event")
     successors: dict[int, list[int]] = defaultdict(list)
     indegree: dict[int, int] = {int(event.id): 0 for event in events}
     predecessor_finish: dict[int, float] = defaultdict(float)
     for edge in trace.edges:
         src = int(edge.from_id)
         dst = int(edge.to_id)
+        if checkpoint and (dst not in indegree or src == dst):
+            raise ValueError("suffix edge does not target a new event")
+        if checkpoint and src not in indegree and dst in indegree:
+            if src not in prior_finish:
+                raise ValueError("suffix dependency is absent from the prefix checkpoint")
+            predecessor_finish[dst] = max(predecessor_finish[dst], prior_finish[src])
+            continue
         if src not in indegree or dst not in indegree or src == dst:
             continue
         successors[src].append(dst)
@@ -165,7 +201,7 @@ def replay_trace_once(
             partition_by_event[int(event_id)] = partition
 
     ready = deque(sorted(event_id for event_id, degree in indegree.items() if degree == 0))
-    lane_time: dict[int, float] = defaultdict(float)
+    lane_time: dict[int, float] = defaultdict(float, checkpoint.lane_time if checkpoint else {})
     finish_time: dict[int, float] = {}
     collective_wait: dict[str, list[int]] = defaultdict(list)
     collective_weight: dict[str, int] = defaultdict(int)
@@ -239,18 +275,39 @@ def replay_trace_once(
             "collective_wait_keys": sorted(collective_wait)[:8],
         }
 
-    return ReplayReport(
-        event_count=len(events),
-        logical_event_count=int(trace.logical_event_count),
-        compact_event_count=len(events),
+    prior = checkpoint.report if checkpoint else None
+    reused = prior.completed_events if prior else 0
+    report = ReplayReport(
+        event_count=len(events) + reused,
+        logical_event_count=int(trace.logical_event_count) + (prior.logical_event_count if prior else 0),
+        compact_event_count=len(events) + reused,
         dedup_group_count=len(trace.dedup_groups),
-        edge_count=len(trace.edges),
-        sync_partition_count=len(trace.sync_partitions),
-        completed_events=completed,
-        prediction_calls=predictor.calls,
-        total_time_us=max(finish_time.values(), default=0.0),
+        edge_count=len(trace.edges) + (prior.edge_count if prior else 0),
+        sync_partition_count=len(trace.sync_partitions) + (prior.sync_partition_count if prior else 0),
+        completed_events=completed + reused,
+        prediction_calls=predictor.calls - initial_calls if checkpoint else predictor.calls,
+        total_time_us=max(max(finish_time.values(), default=0.0), prior.total_time_us if prior else 0.0),
         prediction_overhead_us=prediction_overhead_us,
         simulator_overhead_us=(time.perf_counter() - started) * 1.0e6,
         cycle_detected=cycle,
         pending_summary=pending_summary,
+        replayed_events=completed,
+        reused_events=reused,
     )
+    return ReplayCheckpoint(
+        report, ChainMap(finish_time, prior_finish), dict(lane_time),
+        predictor, use_duration_hints, zero_duration_apis,
+    )
+
+
+def replay_trace_once(
+    trace: object,
+    *,
+    predictor: ReplayRandomForestPredictor | None = None,
+    use_duration_hints: bool = True,
+    zero_duration_apis: frozenset[str] = frozenset(),
+) -> ReplayReport:
+    return replay_trace_segment(
+        trace, predictor=predictor, use_duration_hints=use_duration_hints,
+        zero_duration_apis=zero_duration_apis,
+    ).report

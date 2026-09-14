@@ -107,6 +107,22 @@ struct GlobalTrace {
     bool deduplicated = false;
 };
 
+// A fixed-rank prefix followed by a new, non-collective code region.
+// The saved frontier belongs to the prefix; each append is an independent branch.
+class TraceSuffixBuilder {
+  public:
+    struct State;
+    TraceSuffixBuilder(const std::vector<RawEvent>& prefix,
+                       const std::map<int, std::vector<int>>& rank_groups);
+    const GlobalTrace& prefix() const { return prefix_; }
+    GlobalTrace append(const std::vector<RawEvent>& suffix) const;
+
+  private:
+    std::shared_ptr<const State> state_;
+    GlobalTrace prefix_;
+    std::map<int, std::vector<int>> rank_groups_;
+};
+
 class EventArena {
   public:
     std::uint64_t append(RawEvent event);

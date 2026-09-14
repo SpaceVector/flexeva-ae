@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import os
-import runpy
 from pathlib import Path
 
 
@@ -17,7 +16,8 @@ def main() -> int:
     os.environ["FAKECUDA_TRACE_PATH"] = str(trace_dir / f"rank_{rank}.jsonl")
     os.environ["FLEXSIM_MAYA_MARKERS_PATH"] = str(trace_dir / f"rank_{rank}_markers.jsonl")
     os.environ.setdefault("FAKECUDA_TRACE_STDIO_BUFFER_BYTES", "0")
-    runpy.run_path(os.environ["ROUTED_MOE_SCRIPT"], run_name="__main__")
+    from maya_megatron_trace_worker import run_workload
+    run_workload(os.environ["ROUTED_MOE_SCRIPT"])
     return 0
 
 
