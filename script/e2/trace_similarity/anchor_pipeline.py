@@ -43,6 +43,8 @@ def rebase_suffix(prefix_end, replacement, world_size):
         raise ValueError("anchor or selective capture has incomplete rank coverage")
     for rank in range(world_size):
         suffix = suffixes[rank]
+        # Place the new tail after the anchor prefix without changing its
+        # internal timestamp intervals or any timestamp in the cached prefix.
         offset = prefix_end[rank] + 1 - suffix[0].timestamp_ns
         for event in suffix:
             event.timestamp_ns += offset
@@ -127,6 +129,7 @@ def run_pipeline(args, name, source, world_size, rank_groups, launch, parse, *,
 
     old_dir = capture("anchor", baseline)
     old = parse(old_dir, {})
+    # The optimizer mutation leaves all work before this boundary unchanged.
     prefix_raw = [event for event in old if not event.code_partition.endswith("_optimizer_step")]
     old_tail = [event for event in old if event.code_partition.endswith("_optimizer_step")]
     prefix_end = {}
@@ -139,6 +142,7 @@ def run_pipeline(args, name, source, world_size, rank_groups, launch, parse, *,
         **{field: tuple(getattr(prefix_trace, field)) for field in GRAPH_FIELDS},
         dedup_groups=prefix_trace.dedup_groups, logical_event_count=prefix_trace.logical_event_count,
     )
+    # Both optimizer variants resume from the same prefix completion/lane clocks.
     checkpoint = replay_trace_segment(prefix_trace)
     projection_checkpoints = {
         policy: replay_trace_segment(
@@ -151,6 +155,7 @@ def run_pipeline(args, name, source, world_size, rank_groups, launch, parse, *,
         raise ValueError("incomplete anchor feedback")
     del old, prefix_raw, old_tail
     selected_dir = capture("selective", candidate)
+    # The new tail must refer to the same logical streams and events as the anchor.
     for rank in range(world_size):
         receipts = [json.loads((directory / f"rank_{rank}_refresh.json").read_text())
                     for directory in (old_dir, selected_dir)]
@@ -164,6 +169,7 @@ def run_pipeline(args, name, source, world_size, rank_groups, launch, parse, *,
     feedback = replay_trace_segment(delta, checkpoint=checkpoint).report
     if feedback.cycle_detected:
         raise ValueError("incomplete candidate feedback")
+    # Whole-candidate metrics see the cached prefix and new tail as one trace.
     trace = join_graph(prefix, delta)
     trace.projection_feedback = {
         policy: replay_trace_segment(
@@ -190,7 +196,8 @@ def run_pipeline(args, name, source, world_size, rank_groups, launch, parse, *,
         "prefix_execution_skipped": False,
         "runs": runs,
     }
-    # Publication precedes the first reference capture/read.
+    # Publish candidate feedback before collecting the independent full run.
+    # That run is only a comparison reference, not an input to selective refresh.
     (case_dir / "candidate.json").write_text(json.dumps(pipeline, indent=2) + "\n")
     del selected
     reference_dir = capture("reference", candidate)

@@ -39,6 +39,8 @@ def run_workload(source):
             os.environ["FAKECUDA_RETAIN"] = "1"
 
     markers.emit_step_marker = emit
+    # Retain mode still executes the prefix to establish runtime state; ordinary
+    # trace recording starts when the optimizer marker switches it off.
     os.environ["FAKECUDA_RETAIN"] = "1" if phase == "selective" else "0"
     enabled = gc.isenabled()
     gc.disable()

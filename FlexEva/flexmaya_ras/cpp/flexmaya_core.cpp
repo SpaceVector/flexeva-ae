@@ -914,6 +914,8 @@ GlobalTrace TraceSuffixBuilder::append(const std::vector<RawEvent>& suffix) cons
             throw std::invalid_argument("suffix precedes its prefix");
         }
     }
+    // Copy the dependency frontier, not the prefix graph. Saved lane/event
+    // identifiers let the new suffix keep its dependencies on prefix events.
     auto state = *state_;
     auto trace = build_trace_chunk(representative_events(suffix, groups), state);
     attach_dedup(&trace, groups);

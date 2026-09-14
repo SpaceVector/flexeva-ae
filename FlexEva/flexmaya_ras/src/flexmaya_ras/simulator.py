@@ -184,6 +184,7 @@ def replay_trace_segment(
         if checkpoint and (dst not in indegree or src == dst):
             raise ValueError("suffix edge does not target a new event")
         if checkpoint and src not in indegree and dst in indegree:
+            # A cross-boundary dependency uses its cached predecessor finish time.
             if src not in prior_finish:
                 raise ValueError("suffix dependency is absent from the prefix checkpoint")
             predecessor_finish[dst] = max(predecessor_finish[dst], prior_finish[src])
@@ -275,6 +276,7 @@ def replay_trace_segment(
             "collective_wait_keys": sorted(collective_wait)[:8],
         }
 
+    # Include cached prefix counts in the complete candidate report.
     prior = checkpoint.report if checkpoint else None
     reused = prior.completed_events if prior else 0
     report = ReplayReport(
