@@ -716,7 +716,19 @@ void HookRecorder::clear_local() {
     local_arena_->clear();
 }
 
-GlobalTrace build_trace_ras(const std::vector<RawEvent>& raw_events) {
+struct TraceSuffixBuilder::State {
+    LaneTable lanes;
+    std::unordered_map<std::uint32_t, std::uint64_t> last_on_lane, lane_pos, trace_window_epoch;
+    std::unordered_map<std::uint32_t, bool> trace_window_has_events;
+    std::unordered_map<std::string, std::uint64_t> recorded_events;
+    std::map<std::pair<int, std::uint32_t>, std::uint64_t> collective_occurrence;
+    std::map<int, std::uint64_t> last_timestamp;
+    std::set<std::string> codes;
+    std::uint64_t next_event = 1, next_partition = 1;
+};
+
+static GlobalTrace build_trace_chunk(const std::vector<RawEvent>& raw_events,
+                                    TraceSuffixBuilder::State& state) {
     std::vector<RawEvent> sorted = raw_events;
     std::sort(sorted.begin(), sorted.end(), [](const RawEvent& left, const RawEvent& right) {
         if (left.rank != right.rank) {
@@ -729,21 +741,22 @@ GlobalTrace build_trace_ras(const std::vector<RawEvent>& raw_events) {
     });
 
     GlobalTrace trace;
-    LaneTable lanes;
-    std::unordered_map<std::uint32_t, std::uint64_t> last_on_lane;
-    std::unordered_map<std::uint32_t, std::uint64_t> lane_pos;
-    std::unordered_map<std::uint32_t, std::uint64_t> trace_window_epoch;
-    std::unordered_map<std::uint32_t, bool> trace_window_has_events;
-
-    std::unordered_map<std::string, std::uint64_t> recorded_events;
-    std::map<std::pair<int, std::uint32_t>, std::uint64_t> collective_occurrence;
+    auto& lanes = state.lanes;
+    auto& last_on_lane = state.last_on_lane;
+    auto& lane_pos = state.lane_pos;
+    auto& trace_window_epoch = state.trace_window_epoch;
+    auto& trace_window_has_events = state.trace_window_has_events;
+    auto& recorded_events = state.recorded_events;
+    auto& collective_occurrence = state.collective_occurrence;
     std::map<std::string, std::vector<std::uint64_t>> collective_members;
     std::map<std::string, SyncPartition> partition_by_key;
 
     for (const RawEvent& raw : sorted) {
+        state.codes.insert(raw.code_partition);
+        state.last_timestamp[raw.rank] = raw.timestamp_ns;
         const std::uint32_t lane_id = lanes.lane_for(raw);
         GlobalEvent event;
-        event.id = static_cast<std::uint64_t>(trace.events.size() + 1);
+        event.id = state.next_event++;
         event.raw_id = raw.id;
         event.rank = raw.rank;
         event.thread_id = raw.thread_id;
@@ -798,7 +811,7 @@ GlobalTrace build_trace_ras(const std::vector<RawEvent>& raw_events) {
 
         if (is_stream_sync(event) || is_device_sync(event)) {
             SyncPartition partition;
-            partition.id = static_cast<std::uint64_t>(partition_by_key.size() + 1);
+            partition.id = state.next_partition++;
             partition.kind = is_stream_sync(event) ? "stream_sync" : "device_sync";
             partition.key = partition.kind + ":rank=" + std::to_string(event.rank) +
                             ":stream=" + std::to_string(event.stream) +
@@ -816,7 +829,7 @@ GlobalTrace build_trace_ras(const std::vector<RawEvent>& raw_events) {
             auto iter = partition_by_key.find(key);
             if (iter == partition_by_key.end()) {
                 SyncPartition partition;
-                partition.id = static_cast<std::uint64_t>(partition_by_key.size() + 1);
+                partition.id = state.next_partition++;
                 partition.kind = "trace_window";
                 partition.key = key;
                 partition.code_partition = event.code_partition;
@@ -838,7 +851,7 @@ GlobalTrace build_trace_ras(const std::vector<RawEvent>& raw_events) {
 
     for (auto& item : collective_members) {
         SyncPartition partition;
-        partition.id = static_cast<std::uint64_t>(partition_by_key.size() + 1);
+        partition.id = state.next_partition++;
         partition.kind = "collective";
         partition.key = item.first;
         partition.event_ids = item.second;
@@ -866,6 +879,49 @@ GlobalTrace build_trace_ras(const std::vector<RawEvent>& raw_events) {
     return trace;
 }
 
+GlobalTrace build_trace_ras(const std::vector<RawEvent>& raw_events) {
+    TraceSuffixBuilder::State state;
+    return build_trace_chunk(raw_events, state);
+}
+
+TraceSuffixBuilder::TraceSuffixBuilder(
+    const std::vector<RawEvent>& prefix,
+    const std::map<int, std::vector<int>>& rank_groups) : rank_groups_(rank_groups) {
+    auto state = std::make_shared<State>();
+    const auto groups = planned_groups(prefix, rank_groups);
+    prefix_ = build_trace_chunk(representative_events(prefix, groups), *state);
+    attach_dedup(&prefix_, groups);
+    finalize_counts(&prefix_);
+    state_ = std::move(state);
+}
+
+GlobalTrace TraceSuffixBuilder::append(const std::vector<RawEvent>& suffix) const {
+    // ponytail: optimizer-tail continuation, not arbitrary interior edits.
+    // A collective spanning this cut needs a pending-collective continuation.
+    const auto groups = planned_groups(suffix, rank_groups_);
+    if (groups.size() != prefix_.dedup_groups.size()) {
+        throw std::invalid_argument("suffix changed the rank groups");
+    }
+    for (const auto& raw : suffix) {
+        if (raw.kind == "nccl_collective" || raw.api.rfind("nccl", 0) == 0) {
+            throw std::invalid_argument("suffix continuation does not admit collectives");
+        }
+        if (raw.code_partition.empty() || state_->codes.count(raw.code_partition)) {
+            throw std::invalid_argument("suffix must start a new code region");
+        }
+        auto last = state_->last_timestamp.find(raw.rank);
+        if (last != state_->last_timestamp.end() && raw.timestamp_ns <= last->second) {
+            throw std::invalid_argument("suffix precedes its prefix");
+        }
+    }
+    // Copy the dependency frontier, not the prefix graph. Saved lane/event
+    // identifiers let the new suffix keep its dependencies on prefix events.
+    auto state = *state_;
+    auto trace = build_trace_chunk(representative_events(suffix, groups), state);
+    attach_dedup(&trace, groups);
+    finalize_counts(&trace);
+    return trace;
+}
 GlobalTrace build_deduplicated_trace_ras(const std::vector<RawEvent>& raw_events) {
     const std::vector<DedupRankGroup> groups = pattern_groups(raw_events);
     std::vector<RawEvent> filtered = representative_events(raw_events, groups);

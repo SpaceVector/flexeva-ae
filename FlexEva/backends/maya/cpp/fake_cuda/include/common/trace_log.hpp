@@ -700,48 +700,65 @@ inline std::string enrich_payload_with_trace_context(const std::string& payload_
            host_timing_source_fragment;
 }
 
+inline bool trace_retaining() {
+    const char* retain = getenv("FAKECUDA_RETAIN");
+    return retain && strcmp(retain, "1") == 0;
+}
+
 class TracePayloadBuilder {
 private:
     std::vector<std::string> items_;
+    bool enabled_;
 
     void add_item(const char* key, const std::string& value_json) {
         items_.push_back("\"" + trace_json_escape(key) + "\":" + value_json);
     }
 
 public:
+    explicit TracePayloadBuilder(bool force_record = false)
+        : enabled_(force_record || !trace_retaining()) {}
+
     bool empty() const {
         return items_.empty();
     }
 
     void add_string(const char* key, const char* value) {
+        if (!enabled_) return;
         add_item(key, "\"" + trace_json_escape(value) + "\"");
     }
 
     void add_string(const char* key, const std::string& value) {
+        if (!enabled_) return;
         add_item(key, "\"" + trace_json_escape(value.c_str()) + "\"");
     }
 
     void add_int(const char* key, int value) {
+        if (!enabled_) return;
         add_item(key, std::to_string(value));
     }
 
     void add_int64(const char* key, std::int64_t value) {
+        if (!enabled_) return;
         add_item(key, std::to_string(value));
     }
 
     void add_uint(const char* key, unsigned int value) {
+        if (!enabled_) return;
         add_item(key, std::to_string(value));
     }
 
     void add_uint64(const char* key, std::uint64_t value) {
+        if (!enabled_) return;
         add_item(key, std::to_string(value));
     }
 
     void add_size(const char* key, size_t value) {
+        if (!enabled_) return;
         add_item(key, std::to_string(value));
     }
 
     void add_bool(const char* key, bool value) {
+        if (!enabled_) return;
         add_item(key, value ? "true" : "false");
     }
 
@@ -1054,6 +1071,13 @@ private:
         const std::string* prebuilt_payload_json,
         const TracePayloadBuilder* payload_builder
     ) {
+        // Retain executes the wrapper's state transitions without publishing
+        // lower-layer trace output. Markers still delimit the selected window.
+        if (trace_retaining() && (!type || strcmp(type, "marker") != 0)) {
+            long long discarded = 0;
+            (void)fakecuda::trace::take_wrapper_entry_start_ns(api, &discarded);
+            return -1LL;
+        }
         const bool measure_mode =
             fakecuda::host_timing::HostTimingConfig::instance().mode() ==
             fakecuda::host_timing::Mode::kMeasure;
@@ -1142,6 +1166,11 @@ private:
         const std::string* prebuilt_payload_json,
         const TracePayloadBuilder* payload_builder
     ) {
+        if (trace_retaining() && (!type || strcmp(type, "marker") != 0)) {
+            long long discarded = 0;
+            (void)fakecuda::trace::take_wrapper_entry_start_ns(api, &discarded);
+            return -1LL;
+        }
         const bool measure_mode =
             fakecuda::host_timing::HostTimingConfig::instance().mode() ==
             fakecuda::host_timing::Mode::kMeasure;

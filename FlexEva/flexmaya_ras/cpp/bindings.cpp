@@ -115,6 +115,13 @@ py::dict trace_dict(const flexmaya::GlobalTrace& trace) {
 PYBIND11_MODULE(_flexmaya_ras, m) {
     m.doc() = "FlexMaya RAS C++ hook-memory trace core";
 
+    py::class_<flexmaya::TraceSuffixBuilder>(m, "TraceSuffixBuilder")
+        .def(py::init<const std::vector<flexmaya::RawEvent>&,
+                     const std::map<int, std::vector<int>>&>())
+        .def_property_readonly("prefix", &flexmaya::TraceSuffixBuilder::prefix,
+                               py::return_value_policy::reference_internal)
+        .def("append", &flexmaya::TraceSuffixBuilder::append);
+
     py::class_<flexmaya::RawEvent>(m, "RawEvent")
         .def(py::init<>())
         .def_readwrite("id", &flexmaya::RawEvent::id)
