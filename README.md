@@ -243,10 +243,14 @@ export MIN_GPFS_FREE_GIB=20
 If you use FlexEva in your research, please cite our paper:
 
 ```bibtex
-@unpublished{flexeva2027eurosys,
-  title  = {{Lightweight Evaluation for Agentic ML Workload Optimization with Resilient Anchor State}},
-  author = {Yan, Muxi and Wu, Yinjie and Tang, Bo and Wang, Xiaoting},
+@inproceedings{flexeva2027eurosys,
+  title  = {Lightweight Evaluation for Agentic ML Workload Optimization with Resilient Anchor State},
+  author = {Yan, Muxi and Wu, Yinjie and Wang, Xiaoting and Tang, Bo},
   year   = {2027},
-  note   = {Submitted to EuroSys 2027}
+  doi    = {10.1145/3842654.3848545},
+  url    = {https://doi.org/10.1145/3842654.3848545},
+  publisher    = {ACM},
+  isbn   = {979-8-4007-2971-3/2027/04},
+  booktitle    = {22nd European Conference on Computer Systems (EuroSys '27), April 19-23, 2027, Rabat, Morocco},
 }
 ```
